@@ -56,6 +56,12 @@ presenceStream s = forever $ do
 			-- f includes resource
 			emit $ PresenceSet f ss status
 
+messageErrors s = forever $ do
+	m <- waitForMessageError (const True) s
+	case messageErrorID m of
+		Just sid -> emit $ MessageErr $ T.pack $ show sid
+		Nothing -> return ()
+
 ims jid s = forever $ do
 	m <- getMessage s
 	-- TODO: handle blank from/id ?  Inbound shouldn't have it, but shouldn't crash...
@@ -115,6 +121,7 @@ main = do
 			presence <- newIORef initialPresence
 
 			void $ forkIO (presenceStream =<< dupSession s)
+			void $ forkIO (messageErrors =<< dupSession s)
 			void $ forkIO (ims jid s)
 
 			run (signals presence jid s)
