@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Data.IORef (newIORef, readIORef, writeIORef)
 import System.Environment (getArgs)
 import Control.Concurrent
 import Data.Maybe (listToMaybe, maybeToList, fromMaybe)
@@ -71,12 +72,16 @@ newThreadID jid = do
 	uuid <- UUID.nextRandom
 	return $ T.pack $ show uuid ++ show jid
 
-signals jid s (SendChat tto mthread body) = do
-	thread <- maybe (newThreadID jid) return mthread
+signals presence jid s (SendChat tto mthread body) =
 	case jidFromText tto of
-		Just to ->
+		Just to -> do
+			thread <- maybe (initPresence to >> newThreadID jid) return mthread
 			sendMessage (message' jid to Chat (Just (thread, Nothing)) Nothing body) s
 		_ -> emit $ Error $ show tto ++ " is not a valid JID"
+	where
+	initPresence to = do
+		p <- readIORef presence
+		sendPresence (p {presenceID = Nothing, presenceTo = Just to}) s
 
 main = do
 	[jid, pass] <- getArgs
@@ -93,9 +98,12 @@ main = do
 			roster <- getRoster s
 			mapM_ (\j -> emit $ PresenceSet j Offline Nothing) $ Map.keys (items roster)
 
-			sendPresence (withIMPresence (IMP (Just StatusDnd) (Just $ T.pack "woohoohere") (Just 12)) presenceOnline) s
+			sendPresence initialPresence s
+			presence <- newIORef initialPresence
 
 			void $ forkIO (presenceStream =<< dupSession s)
 			void $ forkIO (ims jid s)
 
-			run (signals jid s)
+			run (signals presence jid s)
+	where
+	initialPresence = ((withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just   12)) presenceOnline))
