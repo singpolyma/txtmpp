@@ -75,10 +75,11 @@ newThreadID jid = do
 signals presence jid s (SendChat tto mthread body) =
 	case jidFromText tto of
 		Just to -> do
-			thread <- maybe (initPresence to >> newThreadID jid) return mthread
+			thread <- maybe (newThreadID jid) return mthread
 			sendMessage (message' jid to Chat (Just (thread, Nothing)) Nothing body) s
 		_ -> emit $ Error $ show tto ++ " is not a valid JID"
 	where
+	-- Presence leak may be more complex.  Needs more thought
 	initPresence to = do
 		p <- readIORef presence
 		sendPresence (p {presenceID = Nothing, presenceTo = Just to}) s
