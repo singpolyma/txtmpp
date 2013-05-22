@@ -13,6 +13,7 @@ import qualified Data.Map as Map
 
 import System.Log.Logger
 import Network.Xmpp
+import Network.Xmpp.Internal (StanzaID(..))
 import Network.Xmpp.IM
 import Data.XML.Types
 
@@ -30,9 +31,9 @@ authSession (Jid (Just user) domain resource) pass =
 	def
 authSession _ _ = return $ Left XmppAuthFailure
 
-message' :: Jid -> Jid -> MessageType -> Maybe (Text, Maybe Text) -> Maybe Text -> Text -> Message
-message' from to typ thread subject body = withIM
-	(Message Nothing (Just from) (Just to) Nothing typ [])
+message' :: Maybe StanzaID -> Jid -> Jid -> MessageType -> Maybe (Text, Maybe Text) -> Maybe Text -> Text -> Message
+message' id from to typ thread subject body = withIM
+	(Message id (Just from) (Just to) Nothing typ [])
 	InstantMessage {
 		imSubject = fmap (MessageSubject Nothing) $ maybeToList subject,
 		imBody = [MessageBody Nothing body],
@@ -57,12 +58,16 @@ presenceStream s = forever $ do
 
 ims jid s = forever $ do
 	m <- getMessage s
+	-- TODO: handle blank from/id ?  Inbound shouldn't have it, but shouldn't crash...
 	let Just otherJid = otherSide jid m
+	let Just from = messageFrom m
+	let Just id = fmap (T.pack . show) (messageID m)
+
 	let im = getIM m
 	let subject = fmap subjectContent $ (listToMaybe . imSubject) =<< im
 	let body = maybe (T.pack "") subjectContent ((listToMaybe . imSubject) =<< im)
 	thread <- maybe (newThreadID jid) return (fmap theadID $ imThread =<< im)
-	emit $ ChatMessage otherJid thread subject body
+	emit $ ChatMessage otherJid thread from id subject body
 
 otherSide myjid (Message {messageFrom = from, messageTo = to})
 	| from == Just myjid = to
@@ -76,13 +81,20 @@ signals presence jid s (SendChat tto mthread body) =
 	case jidFromText tto of
 		Just to -> do
 			thread <- maybe (newThreadID jid) return mthread
-			sendMessage (message' jid to Chat (Just (thread, Nothing)) Nothing body) s
+			mid <- newStanzaId s
+			sendMessage (message' (Just mid) jid to Chat (Just (thread, Nothing)) Nothing body) s
+			emit $ ChatMessage to thread jid (T.pack $ show mid) Nothing body
 		_ -> emit $ Error $ show tto ++ " is not a valid JID"
 	where
 	-- Presence leak may be more complex.  Needs more thought
 	initPresence to = do
 		p <- readIORef presence
 		sendPresence (p {presenceID = Nothing, presenceTo = Just to}) s
+
+newStanzaId :: Session -> IO StanzaID
+newStanzaId s = do
+	jid <- fmap (fromMaybe (Jid Nothing (T.pack "example.com") Nothing)) (getJid s)
+	fmap StanzaID (newThreadID jid)
 
 main = do
 	[jid, pass] <- getArgs

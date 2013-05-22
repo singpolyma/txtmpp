@@ -10,7 +10,7 @@ data Status = SS ShowStatus | Online | Offline
 
 data OutSignal =
 	PresenceSet Jid Status (Maybe Text) |
-	ChatMessage Jid Text (Maybe Text) Text | -- other side (user or MUC) threadID subject body
+	ChatMessage Jid Text Jid Text (Maybe Text) Text | -- other side (user or MUC) threadID fromJid stanzaID subject body
 	Error String
 	deriving (Show)
 
