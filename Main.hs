@@ -71,9 +71,12 @@ ims jid s = forever $ do
 
 	let im = getIM m
 	let subject = fmap subjectContent $ (listToMaybe . imSubject) =<< im
-	let body = maybe (T.pack "") subjectContent ((listToMaybe . imSubject) =<< im)
-	thread <- maybe (newThreadID jid) return (fmap theadID $ imThread =<< im)
-	emit $ ChatMessage otherJid thread from id subject body
+	let body = fmap bodyContent $ (listToMaybe . imBody) =<< im
+	case (subject, body) of
+		(Nothing, Nothing) -> return () -- ignore completely empty message
+		_ -> do
+			thread <- maybe (newThreadID jid) return (fmap theadID $ imThread =<< im)
+			emit $ ChatMessage otherJid thread from id subject (fromMaybe (T.pack "") body)
 
 otherSide myjid (Message {messageFrom = from, messageTo = to})
 	| from == Just myjid = to
