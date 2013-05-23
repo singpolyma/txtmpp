@@ -6,6 +6,7 @@ import Control.Concurrent
 import Data.Maybe (listToMaybe, maybeToList, fromMaybe)
 import Control.Monad
 import Control.Monad.Trans
+import Data.Either.Unwrap (unlessLeft)
 import Data.Default (def)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -21,6 +22,7 @@ import qualified Data.UUID.V4 as UUID
 
 import UI
 import Types
+import Nick
 
 authSession :: Jid -> Text -> IO (Either XmppFailure Session)
 authSession (Jid (Just user) domain resource) pass =
@@ -52,9 +54,10 @@ presenceStream s = forever $ do
 	case (presenceFrom p, presenceStatus p) of
 		(_,Nothing) -> return ()
 		(Nothing,_) -> return ()
-		(Just f, Just (ss,status)) ->
+		(Just f, Just (ss,status)) -> do
 			-- f includes resource
 			emit $ PresenceSet f ss status
+			unlessLeft (getNick $ presencePayload p) (emit . NickSet f)
 
 messageErrors s = forever $ do
 	m <- waitForMessageError (const True) s
@@ -68,6 +71,8 @@ ims jid s = forever $ do
 	let Just otherJid = otherSide jid m
 	let Just from = messageFrom m
 	let Just id = fmap (T.pack . show) (messageID m)
+
+	unlessLeft (getNick $ messagePayload m) (emit . NickSet from)
 
 	let im = getIM m
 	let subject = fmap subjectContent $ (listToMaybe . imSubject) =<< im
