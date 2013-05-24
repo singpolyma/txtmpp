@@ -1,9 +1,8 @@
 module Types where
 
 import Data.Text (Text)
-import Network.Xmpp
-import Network.Xmpp.IM
-import Data.XML.Types
+import Network.Xmpp (Jid)
+import Network.Xmpp.IM (ShowStatus)
 
 data Status = SS ShowStatus | Online | Offline
 	deriving (Show)

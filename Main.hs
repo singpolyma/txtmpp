@@ -1,11 +1,10 @@
 module Main (main) where
 
-import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, newIORef)
 import System.Environment (getArgs)
 import Control.Concurrent
 import Data.Maybe (listToMaybe, maybeToList, fromMaybe)
 import Control.Monad
-import Control.Monad.Trans
 import Data.Either.Unwrap (unlessLeft)
 import Data.Default (def)
 import Data.Text (Text)
@@ -16,7 +15,6 @@ import System.Log.Logger
 import Network.Xmpp
 import Network.Xmpp.Internal (StanzaID(..))
 import Network.Xmpp.IM
-import Data.XML.Types
 
 import qualified Data.UUID.V4 as UUID
 
@@ -42,12 +40,14 @@ message' id from to typ thread subject body = withIM
 		imThread = fmap (uncurry MessageThread) thread
 	}
 
+presenceStatus :: Presence -> Maybe (Status, Maybe Text)
 presenceStatus p = case (presenceType p, getIMPresence p) of
 	(Unavailable, Just (IMP {showStatus = Nothing, status = s})) -> Just (Offline, s)
 	(Available, Just (IMP {showStatus = Nothing, status = s})) -> Just (Online, s)
 	(_, Just (IMP {showStatus = Just ss, status = s})) -> Just (SS ss, s)
 	_ -> Nothing
 
+presenceStream :: Session -> IO ()
 presenceStream s = forever $ do
 	-- Does not filter out ourselves or other instances of our account
 	p <- waitForPresence (const True) s
@@ -59,12 +59,14 @@ presenceStream s = forever $ do
 			emit $ PresenceSet f ss status
 			unlessLeft (getNick $ presencePayload p) (emit . NickSet f)
 
+messageErrors :: Session -> IO ()
 messageErrors s = forever $ do
 	m <- waitForMessageError (const True) s
 	case messageErrorID m of
 		Just sid -> emit $ MessageErr $ T.pack $ show sid
 		Nothing -> return ()
 
+ims :: Jid -> Session -> IO ()
 ims jid s = forever $ do
 	m <- getMessage s
 	-- TODO: handle blank from/id ?  Inbound shouldn't have it, but shouldn't crash...
@@ -83,15 +85,18 @@ ims jid s = forever $ do
 			thread <- maybe (newThreadID jid) return (fmap theadID $ imThread =<< im)
 			emit $ ChatMessage otherJid thread from id subject (fromMaybe (T.pack "") body)
 
+otherSide :: Jid -> Message -> Maybe Jid
 otherSide myjid (Message {messageFrom = from, messageTo = to})
 	| from == Just myjid = to
 	| otherwise = from
 
+newThreadID :: Jid -> IO Text
 newThreadID jid = do
 	uuid <- UUID.nextRandom
 	return $ T.pack $ show uuid ++ show jid
 
-signals presence jid s (SendChat tto mthread body) =
+signals :: IORef Presence -> Jid -> Session -> InSignal -> IO ()
+signals _ jid s (SendChat tto mthread body) =
 	case jidFromText tto of
 		Just to -> do
 			thread <- maybe (newThreadID jid) return mthread
@@ -99,17 +104,13 @@ signals presence jid s (SendChat tto mthread body) =
 			sendMessage (message' (Just mid) jid to Chat (Just (thread, Nothing)) Nothing body) s
 			emit $ ChatMessage to thread jid (T.pack $ show mid) Nothing body
 		_ -> emit $ Error $ show tto ++ " is not a valid JID"
-	where
-	-- Presence leak may be more complex.  Needs more thought
-	initPresence to = do
-		p <- readIORef presence
-		sendPresence (p {presenceID = Nothing, presenceTo = Just to}) s
 
 newStanzaId :: Session -> IO StanzaID
 newStanzaId s = do
 	jid <- fmap (fromMaybe (Jid Nothing (T.pack "example.com") Nothing)) (getJid s)
 	fmap StanzaID (newThreadID jid)
 
+main :: IO ()
 main = do
 	[jid, pass] <- getArgs
 
@@ -134,4 +135,4 @@ main = do
 
 			run (signals presence jid s)
 	where
-	initialPresence = ((withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just   12)) presenceOnline))
+	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just   12)) presenceOnline
