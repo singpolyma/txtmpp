@@ -31,8 +31,8 @@ authSession (Jid (Just user) domain resource) pass =
 	def
 authSession _ _ = return $ Left XmppAuthFailure
 
-message' :: Maybe StanzaID -> Jid -> Jid -> MessageType -> Maybe (Text, Maybe Text) -> Maybe Text -> Text -> Message
-message' id from to typ thread subject body = withIM
+mkIM :: Maybe StanzaID -> Jid -> Jid -> MessageType -> Maybe (Text, Maybe Text) -> Maybe Text -> Text -> Message
+mkIM id from to typ thread subject body = withIM
 	(Message id (Just from) (Just to) Nothing typ [])
 	InstantMessage {
 		imSubject = fmap (MessageSubject Nothing) $ maybeToList subject,
@@ -101,7 +101,7 @@ signals _ jid s (SendChat tto mthread body) =
 		Just to -> do
 			thread <- maybe (newThreadID jid) return mthread
 			mid <- newStanzaId s
-			sendMessage (message' (Just mid) jid to Chat (Just (thread, Nothing)) Nothing body) s
+			sendMessage (mkIM (Just mid) jid to Chat (Just (thread, Nothing)) Nothing body) s
 			emit $ ChatMessage to thread jid (T.pack $ show mid) Nothing body
 		_ -> emit $ Error $ show tto ++ " is not a valid JID"
 
