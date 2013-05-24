@@ -1,5 +1,6 @@
 Main: Main.hs Types.hs UI.hs Nick.hs
-	ghc -O2 Main.hs
+	hlint *.hs
+	ghc -XHaskell98 -O2 -Wall -fno-warn-name-shadowing Main.hs
 
 .PHONY: clean
 clean:
