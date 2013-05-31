@@ -126,7 +126,10 @@ main = do
 			jid <- fmap (fromMaybe (read jid)) (getJid s)
 
 			roster <- getRoster s
-			mapM_ (\j -> emit $ PresenceSet j Offline Nothing) $ Map.keys (items roster)
+			mapM_ (\(_,Item {jid = j, name = n}) -> do
+					emit $ PresenceSet j Offline Nothing
+					maybe (return ()) (emit . NickSet j) n
+				) $ Map.toList (items roster)
 
 			sendPresence initialPresence s
 			presence <- newIORef initialPresence
