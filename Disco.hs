@@ -11,7 +11,7 @@ import qualified Data.Text as T
 
 import Data.XML.Types
 
-data Identity = Identity T.Text T.Text (Maybe T.Text)
+data Identity = Identity T.Text T.Text (Maybe T.Text) (Maybe LangTag)
 	deriving (Show, Eq)
 
 discoNS :: T.Text
@@ -24,13 +24,14 @@ nsname :: String -> Name
 nsname local = Name (T.pack local) (Just discoNS) Nothing
 
 identityToElement :: Identity -> Element
-identityToElement (Identity cat typ nam) = Element
+identityToElement (Identity cat typ nam lang) = Element
 	-- XXX: May want to include http://jabber.org/protocol/disco#info namespace?
 	(nsname "identity")
 	([
 		(name "category", [ContentText cat]),
 		(name "type", [ContentText typ])
-	] ++ maybe [] (\n -> [(name "name", [ContentText n])]) nam)
+	] ++ maybe [] (\n -> [(name "name", [ContentText n])]) nam
+	  ++ maybe [] (\l -> [(name "xml:lang", [ContentText $ T.pack $ show l])]) lang)
 	[]
 
 respondToDisco ::

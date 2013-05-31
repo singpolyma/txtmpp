@@ -134,7 +134,7 @@ main = do
 			void $ forkIO (presenceStream =<< dupSession s)
 			void $ forkIO (messageErrors =<< dupSession s)
 			void $ forkIO (ims jid s)
-			void $ forkIO (void $ respondToDisco [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack "txtmpp")] s)
+			void $ forkIO (void $ respondToDisco [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack "txtmpp") Nothing] s)
 			void $ forkIO (void $ respondToPing (const $ return True) s)
 
 			run (signals presence jid s)
