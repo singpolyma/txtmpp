@@ -21,6 +21,7 @@ import qualified Data.UUID.V4 as UUID
 import UI
 import Types
 import Nick
+import Ping
 
 authSession :: Jid -> Text -> IO (Either XmppFailure Session)
 authSession (Jid (Just user) domain resource) pass =
@@ -132,6 +133,7 @@ main = do
 			void $ forkIO (presenceStream =<< dupSession s)
 			void $ forkIO (messageErrors =<< dupSession s)
 			void $ forkIO (ims jid s)
+			void $ forkIO (void $ respondToPing (const $ return True) s)
 
 			run (signals presence jid s)
 	where
