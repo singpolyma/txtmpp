@@ -19,7 +19,7 @@ respondToPing p s =
 
 respondToPing' :: (Jid -> IO Bool) -> TChan IQRequestTicket -> IO Bool
 respondToPing' p' chan =
-	maybeT (return False) (error "Ping.respondToPing infinite loop ended") $
+	maybeT (return False) (error "Ping.respondToPing' infinite loop ended") $
 		forever $ do
 			ticket <- liftIO $ atomically (readTChan chan)
 			allow <- maybe (return True) p (iqRequestFrom $ iqRequestBody ticket)
