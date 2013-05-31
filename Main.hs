@@ -137,6 +137,9 @@ main = do
 			Just disco <- startDisco (const $ return True) [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack "txtmpp") Nothing] s
 			void $ forkIO (void $ respondToPing (const $ return True) disco s)
 
+			-- Should do service disco, etc
+			void $ forkIO (forever $ doPing (read "singpolyma.net") s >>= print >> threadDelay 30000000)
+
 			run (signals presence jid s)
 	where
 	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just   12)) presenceOnline
