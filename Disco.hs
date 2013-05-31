@@ -36,7 +36,6 @@ nsname local = Name (T.pack local) (Just discoNS) Nothing
 
 identityToElement :: Identity -> Element
 identityToElement (Identity cat typ nam lang) = Element
-	-- XXX: May want to include http://jabber.org/protocol/disco#info namespace?
 	(nsname "identity")
 	([
 		(name "category", [ContentText cat]),
