@@ -26,6 +26,6 @@ respondToPing' p' chan =
 			result <- liftIO $ answerIQ ticket $
 				if allow then Right Nothing else
 					Left $ StanzaError Cancel ServiceUnavailable Nothing Nothing
-			guard (not result)
+			guard result
 	where
 	p = liftIO . p'

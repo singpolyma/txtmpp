@@ -48,7 +48,7 @@ respondToDisco' is' chan =
 		forever $ do
 			ticket <- liftIO $ atomically (readTChan chan)
 			result <- liftIO $ answerIQ ticket $ Right (Just query)
-			guard (not result)
+			guard result
 	where
 	query = Element (nsname "query") [] is
 	is = map (NodeElement . identityToElement) is'
