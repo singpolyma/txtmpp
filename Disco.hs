@@ -54,22 +54,27 @@ stopDisco :: DiscoTicket -> IO ()
 stopDisco (DiscoTicket (_,tid)) = killThread tid
 
 startDisco ::
-	[Identity]
+	(Jid -> IO Bool) -- ^ Should be 'True' if ok to respond to Pings from this Jid
+	-> [Identity]
 	-> Session
 	-> IO (Maybe DiscoTicket)
-startDisco is s =
+startDisco p is s =
 	listenIQChan Get discoNS s >>= either (const $ return Nothing) (\chan -> do
 			fsio <- newIORef [Feature discoNS]
-			threadID <- forkIO (startDisco' is fsio chan)
+			threadID <- forkIO (startDisco' p is fsio chan)
 			return $ Just $ DiscoTicket (fsio, threadID)
 		)
 
-startDisco' :: [Identity] -> IORef [Feature] -> TChan IQRequestTicket -> IO ()
-startDisco' is' fsio chan = forever $ do
+startDisco' :: (Jid -> IO Bool) -> [Identity] -> IORef [Feature] -> TChan IQRequestTicket -> IO ()
+startDisco' p' is' fsio chan = forever $ do
 	ticket <- liftIO $ atomically (readTChan chan)
 	fs <- (fmap.fmap) (NodeElement . featureToElement) (readIORef fsio)
+	allow <- maybe (return True) p (iqRequestFrom $ iqRequestBody ticket)
 	-- This ignores duplicate send errors
-	void $ liftIO $ answerIQ ticket $ Right (Just $ query fs)
+	void $ liftIO $ answerIQ ticket $
+		if allow then Right (Just $ query fs) else
+			Left $ StanzaError Cancel ServiceUnavailable Nothing Nothing
 	where
 	query fs = Element (nsname "query") [] (is ++ fs)
 	is = map (NodeElement . identityToElement) is'
+	p = liftIO . p'
