@@ -9,16 +9,20 @@ import Control.Concurrent.STM.TChan (readTChan, TChan)
 import Control.Error (maybeT)
 import qualified Data.Text as T
 
+import Disco
+
 respondToPing ::
 	(Jid -> IO Bool) -- ^ Should be 'True' if ok to respond to Pings from this Jid
+	-> DiscoTicket
 	-> Session
 	-> IO Bool          -- ^ 'False' if someone else is responding to ping
-respondToPing p s =
+respondToPing p disco s =
 	listenIQChan Get (T.pack "urn:xmpp:ping") s >>=
-		either (const $ return False) (respondToPing' p)
+		either (const $ return False) (respondToPing' p disco)
 
-respondToPing' :: (Jid -> IO Bool) -> TChan IQRequestTicket -> IO Bool
-respondToPing' p' chan =
+respondToPing' :: (Jid -> IO Bool) -> DiscoTicket -> TChan IQRequestTicket -> IO Bool
+respondToPing' p' disco chan = do
+	registerFeature (Feature (T.pack "urn:xmpp:ping")) disco
 	maybeT (return False) (error "Ping.respondToPing' infinite loop ended") $
 		forever $ do
 			ticket <- liftIO $ atomically (readTChan chan)
