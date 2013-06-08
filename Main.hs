@@ -30,12 +30,11 @@ import Disco
 
 authSession :: Jid -> Text -> IO (Either XmppFailure Session)
 authSession (Jid (Just user) domain resource) pass =
-	session (T.unpack domain)
-	(Just ([
-		plain user Nothing pass
-	], resource))
-	def
-authSession _ _ = return $ Left XmppAuthFailure
+	session (T.unpack domain) (Just (sasl, resource)) def
+	where
+	sasl Secured = [scramSha1 user Nothing pass, plain user Nothing pass]
+	sasl _ = [scramSha1 user Nothing pass]
+authSession _ _ = return $ Left $ XmppAuthFailure AuthOtherFailure
 
 mkIM :: Maybe StanzaID -> Jid -> Jid -> MessageType -> Maybe (Text, Maybe Text) -> Maybe Text -> Text -> Message
 mkIM id from to typ thread subject body = withIM
