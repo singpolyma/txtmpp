@@ -113,7 +113,7 @@ otherSide myjid (Message {messageFrom = from, messageTo = to})
 newThreadID :: Jid -> IO Text
 newThreadID jid = do
 	uuid <- UUID.nextRandom
-	return $ T.pack $ show uuid ++ show jid
+	return $ T.pack $ show uuid ++ T.unpack (jidToText jid)
 
 signals :: IORef Presence -> Jid -> Session -> InSignal -> IO ()
 signals _ jid s (SendChat tto mthread body) =
