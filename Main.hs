@@ -55,12 +55,22 @@ presenceStatus p = case (presenceType p, getIMPresence p) of
 	(_, Just (IMP {showStatus = Just ss, status = s})) -> Just (SS ss, s)
 	_ -> Nothing
 
-presenceStream :: Session -> IO ()
-presenceStream s = forever $ do
+acceptSubscription :: Jid -> Session -> IO ()
+acceptSubscription = sendPresence . presenceSubscribed
+
+presenceStream :: TChan RosterRequest -> Session -> IO ()
+presenceStream rosterChan s = forever $ do
 	-- Does not filter out ourselves or other instances of our account
 	p <- waitForPresence (const True) s
 
 	for_ (NickSet <$> presenceFrom p <*> hush (getNick $ presencePayload p)) emit
+
+	case (presenceFrom p, presenceType p) of
+		(Just f, Subscribe) -> do
+			subbed <- getRosterSubbed rosterChan f
+			if subbed then acceptSubscription f s else
+				emit $ SubscriptionRequest f
+		(_, _) -> return ()
 
 	case (presenceFrom p, presenceStatus p) of
 		(_,Nothing) -> return ()
@@ -114,6 +124,7 @@ signals _ jid s (SendChat tto mthread body) =
 			sendMessage (mkIM (Just mid) jid to Chat (Just (thread, Nothing)) Nothing body) s
 			emit $ ChatMessage to thread jid (T.pack $ show mid) Nothing body
 		_ -> emit $ Error $ show tto ++ " is not a valid JID"
+signals _ _ s (AcceptSubscription jid) = acceptSubscription jid s
 
 newStanzaId :: Session -> IO StanzaID
 newStanzaId s = do
@@ -175,7 +186,7 @@ main = do
 			sendPresence initialPresence s
 			presence <- newIORef initialPresence
 
-			void $ forkIO (presenceStream =<< dupSession s)
+			void $ forkIO (presenceStream rosterChan =<< dupSession s)
 			void $ forkIO (messageErrors =<< dupSession s)
 			void $ forkIO (ims jid s)
 			Just disco <- startDisco (getRosterSubbed rosterChan) [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack "txtmpp") Nothing] s
