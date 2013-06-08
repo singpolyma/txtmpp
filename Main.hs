@@ -3,12 +3,16 @@ module Main (main) where
 import Data.IORef (IORef, newIORef)
 import System.Environment (getArgs)
 import Control.Concurrent
+import Control.Concurrent.STM
 import Data.Maybe (listToMaybe, maybeToList, fromMaybe)
 import Control.Monad
 import Data.Either.Unwrap (unlessLeft)
 import Data.Default (def)
+
 import Data.Text (Text)
 import qualified Data.Text as T
+
+import Data.Map (Map)
 import qualified Data.Map as Map
 
 import System.Log.Logger
@@ -112,6 +116,37 @@ newStanzaId s = do
 	jid <- fmap (fromMaybe (Jid Nothing (T.pack "example.com") Nothing)) (getJid s)
 	fmap StanzaID (newThreadID jid)
 
+data RosterRequest = RosterSubbed Jid (TMVar Bool)
+
+rosterServer :: TChan RosterRequest -> Map Jid Item -> IO ()
+rosterServer chan = next
+	where
+	next roster = atomically (readTChan chan) >>= msg
+		where
+		msg (RosterSubbed jid reply) = do
+			atomically $ putTMVar reply $ case Map.lookup (toBare jid) roster of
+				Just (Item {approved = True}) -> True
+				Just (Item {subscription = From}) -> True
+				Just (Item {subscription = Both}) -> True
+				_ -> False
+			next roster
+
+toBare :: Jid -> Jid
+toBare (Jid local domain _) = Jid local domain Nothing
+
+syncCall' :: TChan a -> (TMVar b -> a) -> STM (TMVar b)
+syncCall' chan cons = do
+	reply <- newEmptyTMVar
+	writeTChan chan (cons reply)
+	return reply
+
+syncCall :: TChan a -> (TMVar b -> a) -> IO b
+syncCall chan cons = atomically (syncCall' chan cons) >>=
+	atomically . takeTMVar
+
+getRosterSubbed :: TChan RosterRequest -> Jid -> IO Bool
+getRosterSubbed chan jid = syncCall chan (RosterSubbed jid)
+
 main :: IO ()
 main = do
 	[jid, pass] <- getArgs
@@ -125,11 +160,13 @@ main = do
 		Right s -> do
 			jid <- fmap (fromMaybe (read jid)) (getJid s)
 
+			rosterChan <- atomically newTChan
 			roster <- getRoster s
 			mapM_ (\(_,Item {jid = j, name = n}) -> do
 					emit $ PresenceSet j Offline Nothing
 					maybe (return ()) (emit . NickSet j) n
 				) $ Map.toList (items roster)
+			void $ forkIO (rosterServer rosterChan (items roster))
 
 			sendPresence initialPresence s
 			presence <- newIORef initialPresence
@@ -137,8 +174,8 @@ main = do
 			void $ forkIO (presenceStream =<< dupSession s)
 			void $ forkIO (messageErrors =<< dupSession s)
 			void $ forkIO (ims jid s)
-			Just disco <- startDisco (const $ return True) [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack "txtmpp") Nothing] s
-			void $ forkIO (void $ respondToPing (const $ return True) disco s)
+			Just disco <- startDisco (getRosterSubbed rosterChan) [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack "txtmpp") Nothing] s
+			void $ forkIO (void $ respondToPing (getRosterSubbed rosterChan) disco s)
 
 			-- Should do service disco, etc
 			void $ forkIO (forever $ doPing (read "singpolyma.net") s >>= print >> threadDelay 30000000)
