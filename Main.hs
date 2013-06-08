@@ -58,12 +58,14 @@ presenceStatus p = case (presenceType p, getIMPresence p) of
 acceptSubscription :: Jid -> Session -> IO ()
 acceptSubscription = sendPresence . presenceSubscribed
 
-presenceStream :: TChan RosterRequest -> Session -> IO ()
-presenceStream rosterChan s = forever $ do
+presenceStream :: TChan RosterRequest -> TChan JidLockingRequest -> Session -> IO ()
+presenceStream rosterChan lockingChan s = forever $ do
 	-- Does not filter out ourselves or other instances of our account
 	p <- waitForPresence (const True) s
 
 	for_ (NickSet <$> presenceFrom p <*> hush (getNick $ presencePayload p)) emit
+
+	for_ (presenceFrom p) (atomically . writeTChan lockingChan . JidUnlock)
 
 	case (presenceFrom p, presenceType p) of
 		(Just f, Subscribe) -> do
@@ -86,8 +88,8 @@ messageErrors s = forever $ do
 		Just sid -> emit $ MessageErr $ T.pack $ show sid
 		Nothing -> return ()
 
-ims :: Jid -> Session -> IO ()
-ims jid s = forever $ do
+ims :: TChan JidLockingRequest -> Jid -> Session -> IO ()
+ims lockingChan jid s = forever $ do
 	m <- getMessage s
 	-- TODO: handle blank from/id ?  Inbound shouldn't have it, but shouldn't crash...
 	let Just otherJid = otherSide jid m
@@ -95,6 +97,9 @@ ims jid s = forever $ do
 	let Just id = fmap (T.pack . show) (messageID m)
 
 	unlessLeft (getNick $ messagePayload m) (emit . NickSet from)
+
+	unless (messageType m == GroupChat) $
+		atomically $ writeTChan lockingChan $ JidMaybeLock from
 
 	let im = getIM m
 	let subject = fmap subjectContent $ (listToMaybe . imSubject) =<< im
@@ -107,24 +112,25 @@ ims jid s = forever $ do
 
 otherSide :: Jid -> Message -> Maybe Jid
 otherSide myjid (Message {messageFrom = from, messageTo = to})
-	| from == Just myjid = to
-	| otherwise = from
+	| from == Just myjid = fmap toBare to
+	| otherwise = fmap toBare from
 
 newThreadID :: Jid -> IO Text
 newThreadID jid = do
 	uuid <- UUID.nextRandom
 	return $ T.pack $ show uuid ++ T.unpack (jidToText jid)
 
-signals :: IORef Presence -> Jid -> Session -> InSignal -> IO ()
-signals _ jid s (SendChat tto mthread body) =
+signals :: IORef Presence -> TChan JidLockingRequest -> Jid -> Session -> InSignal -> IO ()
+signals _ lockingChan jid s (SendChat tto mthread body) =
 	case jidFromText tto of
 		Just to -> do
 			thread <- maybe (newThreadID jid) return mthread
 			mid <- newStanzaId s
-			sendMessage (mkIM (Just mid) jid to Chat (Just (thread, Nothing)) Nothing body) s
-			emit $ ChatMessage to thread jid (T.pack $ show mid) Nothing body
+			to' <- syncCall lockingChan (JidGetLocked to)
+			sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
+			emit $ ChatMessage (toBare to) thread jid (T.pack $ show mid) Nothing body
 		_ -> emit $ Error $ show tto ++ " is not a valid JID"
-signals _ _ s (AcceptSubscription jid) = acceptSubscription jid s
+signals _ _ _ s (AcceptSubscription jid) = acceptSubscription jid s
 
 newStanzaId :: Session -> IO StanzaID
 newStanzaId s = do
@@ -145,6 +151,27 @@ rosterServer chan = next
 				Just (Item {subscription = Both}) -> True
 				_ -> False
 			next roster
+
+data JidLockingRequest = JidMaybeLock Jid | JidUnlock Jid | JidGetLocked Jid (TMVar Jid)
+
+jidLockingServer :: TChan JidLockingRequest -> IO ()
+jidLockingServer chan = next Map.empty
+	where
+	next locks = atomically (readTChan chan) >>= msg
+		where
+		-- Lock if unlocked or passed jid is the same, unlock otherwise
+		msg (JidMaybeLock jid) = next $ Map.alter (maybe (Just jid)
+				(\exist -> if exist == jid then Just jid else Nothing)
+			) (toBare jid) locks
+
+		-- Always unlock
+		msg (JidUnlock jid) = next $ Map.delete (toBare jid) locks
+
+		-- Get the locked JID if there is one, or else the bare JID
+		msg (JidGetLocked jid reply) = do
+			let jid' = toBare jid
+			atomically $ putTMVar reply (fromMaybe jid' $ Map.lookup jid' locks)
+			next locks
 
 toBare :: Jid -> Jid
 toBare (Jid local domain _) = Jid local domain Nothing
@@ -183,18 +210,21 @@ main = do
 				) $ Map.toList (items roster)
 			void $ forkIO (rosterServer rosterChan (items roster))
 
+			lockingChan <- atomically newTChan
+			void $ forkIO (jidLockingServer lockingChan)
+
 			sendPresence initialPresence s
 			presence <- newIORef initialPresence
 
-			void $ forkIO (presenceStream rosterChan =<< dupSession s)
+			void $ forkIO (presenceStream rosterChan lockingChan =<< dupSession s)
 			void $ forkIO (messageErrors =<< dupSession s)
-			void $ forkIO (ims jid s)
+			void $ forkIO (ims lockingChan jid s)
 			Just disco <- startDisco (getRosterSubbed rosterChan) [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack "txtmpp") Nothing] s
 			void $ forkIO (void $ respondToPing (getRosterSubbed rosterChan) disco s)
 
 			-- Should do service disco, etc
 			void $ forkIO (forever $ doPing (parseJid "singpolyma.net") s >>= print >> threadDelay 30000000)
 
-			run (signals presence jid s)
+			run (signals presence lockingChan jid s)
 	where
 	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just   12)) presenceOnline
