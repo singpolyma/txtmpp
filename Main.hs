@@ -1,11 +1,14 @@
 module Main (main) where
 
+import Data.Foldable (for_)
+import Control.Applicative
 import Data.IORef (IORef, newIORef)
 import System.Environment (getArgs)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Data.Maybe (listToMaybe, maybeToList, fromMaybe)
 import Control.Monad
+import Control.Error (hush)
 import Data.Either.Unwrap (unlessLeft)
 import Data.Default (def)
 
@@ -56,13 +59,15 @@ presenceStream :: Session -> IO ()
 presenceStream s = forever $ do
 	-- Does not filter out ourselves or other instances of our account
 	p <- waitForPresence (const True) s
+
+	for_ (NickSet <$> presenceFrom p <*> hush (getNick $ presencePayload p)) emit
+
 	case (presenceFrom p, presenceStatus p) of
 		(_,Nothing) -> return ()
 		(Nothing,_) -> return ()
-		(Just f, Just (ss,status)) -> do
+		(Just f, Just (ss,status)) ->
 			-- f includes resource
 			emit $ PresenceSet f ss status
-			unlessLeft (getNick $ presencePayload p) (emit . NickSet f)
 
 messageErrors :: Session -> IO ()
 messageErrors s = forever $ do
