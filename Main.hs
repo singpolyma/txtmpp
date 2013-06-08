@@ -87,7 +87,7 @@ ims jid s = forever $ do
 	case (subject, body) of
 		(Nothing, Nothing) -> return () -- ignore completely empty message
 		_ -> do
-			thread <- maybe (newThreadID jid) return (fmap theadID $ imThread =<< im)
+			thread <- maybe (newThreadID jid) return (fmap threadID $ imThread =<< im)
 			emit $ ChatMessage otherJid thread from id subject (fromMaybe (T.pack "") body)
 
 otherSide :: Jid -> Message -> Maybe Jid
@@ -152,12 +152,12 @@ main = do
 
 	updateGlobalLogger "Pontarius.Xmpp" $ setLevel DEBUG
 
-	x <- authSession (read jid) (T.pack pass)
+	x <- authSession (parseJid jid) (T.pack pass)
 
 	case x of
 		Left e -> error (show e)
 		Right s -> do
-			jid <- fmap (fromMaybe (read jid)) (getJid s)
+			jid <- fmap (fromMaybe (parseJid jid)) (getJid s)
 
 			rosterChan <- atomically newTChan
 			roster <- getRoster s
@@ -177,7 +177,7 @@ main = do
 			void $ forkIO (void $ respondToPing (getRosterSubbed rosterChan) disco s)
 
 			-- Should do service disco, etc
-			void $ forkIO (forever $ doPing (read "singpolyma.net") s >>= print >> threadDelay 30000000)
+			void $ forkIO (forever $ doPing (parseJid "singpolyma.net") s >>= print >> threadDelay 30000000)
 
 			run (signals presence jid s)
 	where
