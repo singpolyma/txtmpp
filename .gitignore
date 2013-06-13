@@ -3,3 +3,11 @@
 *.swp
 run.sh
 Main
+
+
+bbui/arm/*
+bbui/x86/*
+*.bar
+*.qm
+bbui/src/HaskadesBinding.hs
+bbui/src/haskades_run.cpp
