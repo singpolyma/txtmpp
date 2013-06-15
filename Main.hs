@@ -6,7 +6,7 @@ import Data.IORef (IORef, newIORef)
 import System.Environment (getArgs)
 import Control.Concurrent
 import Control.Concurrent.STM
-import Data.Maybe (listToMaybe, maybeToList, fromMaybe)
+import Data.Maybe (listToMaybe, maybeToList, fromMaybe, isJust)
 import Control.Monad
 import Control.Error (hush)
 import Data.Either.Unwrap (unlessLeft)
@@ -32,9 +32,13 @@ import Ping
 import Disco
 
 authSession :: Jid -> Text -> IO (Either XmppFailure Session)
-authSession (Jid (Just user) domain resource) pass =
+authSession jid pass | isJust user' =
 	session (T.unpack domain) (Just (sasl, resource)) def
 	where
+	resource = resourcepart jid
+	domain = domainpart jid
+	Just user = user'
+	user' = localpart jid
 	sasl Secured = [scramSha1 user Nothing pass, plain user Nothing pass]
 	sasl _ = [scramSha1 user Nothing pass]
 authSession _ _ = return $ Left $ XmppAuthFailure AuthOtherFailure
@@ -55,7 +59,7 @@ presenceStatus p = case (presenceType p, getIMPresence p) of
 	(_, Just (IMP {showStatus = Just ss, status = s})) -> Just (SS ss, s)
 	_ -> Nothing
 
-acceptSubscription :: Jid -> Session -> IO ()
+acceptSubscription :: Jid -> Session -> IO Bool
 acceptSubscription = sendPresence . presenceSubscribed
 
 presenceStream :: TChan RosterRequest -> TChan JidLockingRequest -> Session -> IO ()
@@ -70,7 +74,7 @@ presenceStream rosterChan lockingChan s = forever $ do
 	case (presenceFrom p, presenceType p) of
 		(Just f, Subscribe) -> do
 			subbed <- getRosterSubbed rosterChan f
-			if subbed then acceptSubscription f s else
+			if subbed then void $ acceptSubscription f s else
 				emit $ SubscriptionRequest f
 		(_, _) -> return ()
 
@@ -130,12 +134,14 @@ signals _ lockingChan jid s (SendChat tto mthread body) =
 			sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
 			emit $ ChatMessage (toBare to) thread jid (T.pack $ show mid) Nothing body
 		_ -> emit $ Error $ show tto ++ " is not a valid JID"
-signals _ _ _ s (AcceptSubscription jid) = acceptSubscription jid s
+signals _ _ _ s (AcceptSubscription jid) = void $ acceptSubscription jid s
 
 newStanzaId :: Session -> IO StanzaID
 newStanzaId s = do
-	jid <- fmap (fromMaybe (Jid Nothing (T.pack "example.com") Nothing)) (getJid s)
+	jid <- fmap (fromMaybe dummyjid) (getJid s)
 	fmap StanzaID (newThreadID jid)
+	where
+	Just dummyjid = jidFromTexts Nothing (T.pack "example.com") Nothing
 
 data RosterRequest = RosterSubbed Jid (TMVar Bool)
 
@@ -172,9 +178,6 @@ jidLockingServer chan = next Map.empty
 			let jid' = toBare jid
 			atomically $ putTMVar reply (fromMaybe jid' $ Map.lookup jid' locks)
 			next locks
-
-toBare :: Jid -> Jid
-toBare (Jid local domain _) = Jid local domain Nothing
 
 syncCall' :: TChan a -> (TMVar b -> a) -> STM (TMVar b)
 syncCall' chan cons = do

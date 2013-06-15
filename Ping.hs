@@ -1,6 +1,7 @@
 -- | http://xmpp.org/extensions/xep-0199.html
 module Ping (respondToPing, doPing) where
 
+import Data.Maybe (fromMaybe)
 import Control.Monad
 import Control.Monad.IO.Class (liftIO)
 import Data.Time.Clock (NominalDiffTime, getCurrentTime, diffUTCTime)
@@ -36,7 +37,7 @@ respondToPing' p' disco chan = do
 			result <- liftIO $ answerIQ ticket $
 				if allow then Right Nothing else
 					Left $ StanzaError Cancel ServiceUnavailable Nothing Nothing
-			guard result
+			guard (fromMaybe False result)
 	where
 	p = liftIO . p'
 
@@ -45,9 +46,10 @@ doPing jid s = do
 	t1 <- getCurrentTime
 	r <- sendIQ' (Just jid) Get Nothing el s
 	case r of
-		IQResponseResult _ -> do
+		Just (IQResponseResult _) -> do
 			t2 <- getCurrentTime
 			return $ Right $ diffUTCTime t2 t1
-		e -> return $ Left e
+		Just e -> return $ Left e
+		Nothing -> return $ Left IQResponseTimeout
 	where
 	el = Element (Name (T.pack "ping") (Just pingNS) Nothing) [] []
