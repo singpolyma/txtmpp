@@ -11,11 +11,18 @@ NavigationPane {
 	onCreationCompleted: {
 		/* Init UI */
 
-		conversations.append([
-			{lastMessage: "Well, that's how it goes.", fn: "Jesse Rogers", updated: new Date()},
-			{fn: "Christopher Vollick", lastMessage: "Hello", updated: new Date(2013,05,01,9,9,9,9)},
-			{fn: "Jim Murphy", lastMessage: "Lunch?", updated: new Date(2013,05,12,9,9,9,9)}
-		]);
+		app.ChatMessage.connect(function(otherSide, threadID, fromJid, stanzaID, subject, body) {
+			// TODO: think about what happens with a very long list
+			for(var i = 0; i < conversations.size(); i++) {
+				var val = conversations.value(i);
+				if(val.threadID == threadID && val.otherSide == otherSide) {
+					conversations.removeAt(i);
+					break;
+				}
+			}
+
+			conversations.insert(0, [{lastMessage: body, fn: fromJid, updated: new Date(), threadID: threadID, otherSide: otherSide}]);
+		});
 	}
 
 	Page {
