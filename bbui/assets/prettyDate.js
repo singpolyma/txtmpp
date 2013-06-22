@@ -10,7 +10,7 @@ function format(date) {
 
 	if(isNaN(day_diff)) return "";
 
-	if(diff < 0 || day_diff >= 31) return Qt.formatDateTime(date);
+	if(diff < 0 || day_diff >= 31) return Qt.formatDateTime(date, 'yyyy-mm-dd');
 
 	return day_diff == 0 && (
 			diff < 60 && "just now" ||
