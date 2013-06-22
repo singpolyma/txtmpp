@@ -1,6 +1,4 @@
 import bb.cascades 1.0
-import bb.system 1.0
-import bb.platform 1.0
 
 import "prettyDate.js" as PrettyDate
 
@@ -12,16 +10,32 @@ NavigationPane {
 		/* Init UI */
 
 		app.ChatMessage.connect(function(otherSide, threadID, fromJid, stanzaID, subject, body) {
+			var conversation = {};
+
 			// TODO: think about what happens with a very long list
 			for(var i = 0; i < conversations.size(); i++) {
 				var val = conversations.value(i);
 				if(val.threadID == threadID && val.otherSide == otherSide) {
+					conversation = val;
 					conversations.removeAt(i);
 					break;
 				}
 			}
 
-			conversations.insert(0, [{lastMessage: body, fn: fromJid, updated: new Date(), threadID: threadID, otherSide: otherSide}]);
+			conversation.lastMessage = body;
+			conversation.fn = fromJid;
+			conversation.updated = new Date();
+			conversation.threadID = threadID;
+			conversation.otherSide = otherSide;
+
+			if(!conversation.page) {
+				conversation.page = conversationDefinition.createObject();
+				conversation.page.newParticipant(fromJid);
+				// XXX: show self as participant as well?
+			}
+
+			conversations.insert(0, [conversation]);
+			conversation.page.newMessage(subject, body, conversation.updated);
 		});
 	}
 
@@ -46,10 +60,18 @@ NavigationPane {
 					}
 				]
 
+				onTriggered: {
+					var conversation = dataModel.data(indexPath);
+					navigationPane.push(conversation.page);
+				}
 			}
 		}
 	}
 
 	attachedObjects: [
+		ComponentDefinition {
+			id: conversationDefinition
+			source: "conversation.qml"
+		}
 	]
 }
