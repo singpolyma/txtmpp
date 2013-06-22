@@ -22,6 +22,7 @@ import System.Log.Logger
 import Network.Xmpp
 import Network.Xmpp.Internal (StanzaID(..))
 import Network.Xmpp.IM
+import Network.DNS.Resolver (defaultResolvConf, ResolvConf(..), FileOrNumericHost(..))
 
 import qualified Data.UUID.V4 as UUID
 
@@ -33,7 +34,7 @@ import Disco
 
 authSession :: Jid -> Text -> IO (Either XmppFailure Session)
 authSession jid pass | isJust user' =
-	session (T.unpack domain) (Just (sasl, resource)) def
+	session (T.unpack domain) (Just (sasl, resource)) (def {sessionStreamConfiguration = def {resolvConf = defaultResolvConf {resolvInfo = RCHostName "8.8.8.8"}}})
 	where
 	resource = resourcepart jid
 	domain = domainpart jid
