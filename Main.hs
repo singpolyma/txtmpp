@@ -68,7 +68,7 @@ presenceStream rosterChan lockingChan s = forever $ do
 	-- Does not filter out ourselves or other instances of our account
 	p <- waitForPresence (const True) s
 
-	for_ (NickSet <$> presenceFrom p <*> hush (getNick $ presencePayload p)) emit
+	for_ (NickSet . jidToText <$> presenceFrom p <*> hush (getNick $ presencePayload p)) emit
 
 	for_ (presenceFrom p) (atomically . writeTChan lockingChan . JidUnlock)
 
@@ -76,7 +76,7 @@ presenceStream rosterChan lockingChan s = forever $ do
 		(Just f, Subscribe) -> do
 			subbed <- getRosterSubbed rosterChan f
 			if subbed then void $ acceptSubscription f s else
-				emit $ SubscriptionRequest f
+				emit $ SubscriptionRequest $ jidToText f
 		(_, _) -> return ()
 
 	case (presenceFrom p, presenceStatus p) of
@@ -84,7 +84,7 @@ presenceStream rosterChan lockingChan s = forever $ do
 		(Nothing,_) -> return ()
 		(Just f, Just (ss,status)) ->
 			-- f includes resource
-			emit $ PresenceSet f ss status
+			emit $ PresenceSet (jidToText f) (T.pack $ show ss) (T.pack $ show status)
 
 messageErrors :: Session -> IO ()
 messageErrors s = forever $ do
@@ -101,7 +101,7 @@ ims lockingChan jid s = forever $ do
 	let Just from = messageFrom m
 	let Just id = fmap (T.pack . show) (messageID m)
 
-	unlessLeft (getNick $ messagePayload m) (emit . NickSet from)
+	--unlessLeft (getNick $ messagePayload m) (emit . NickSet (jidToText from))
 
 	unless (messageType m == GroupChat) $
 		atomically $ writeTChan lockingChan $ JidMaybeLock from
@@ -113,7 +113,7 @@ ims lockingChan jid s = forever $ do
 		(Nothing, Nothing) -> return () -- ignore completely empty message
 		_ -> do
 			thread <- maybe (newThreadID jid) return (fmap threadID $ imThread =<< im)
-			emit $ ChatMessage otherJid thread from id subject (fromMaybe (T.pack "") body)
+			emit $ ChatMessage (jidToText otherJid) thread (jidToText from) id (T.pack $ show subject) (fromMaybe (T.pack "") body)
 
 otherSide :: Jid -> Message -> Maybe Jid
 otherSide myjid (Message {messageFrom = from, messageTo = to})
@@ -125,17 +125,18 @@ newThreadID jid = do
 	uuid <- UUID.nextRandom
 	return $ T.pack $ show uuid ++ T.unpack (jidToText jid)
 
-signals :: IORef Presence -> TChan JidLockingRequest -> Jid -> Session -> InSignal -> IO ()
-signals _ lockingChan jid s (SendChat tto mthread body) =
+signals :: IORef Presence -> TChan JidLockingRequest -> Jid -> Session -> SignalFromUI -> IO ()
+signals _ lockingChan jid s (SendChat tto thread body) =
 	case jidFromText tto of
 		Just to -> do
-			thread <- maybe (newThreadID jid) return mthread
 			mid <- newStanzaId s
 			to' <- syncCall lockingChan (JidGetLocked to)
 			sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
-			emit $ ChatMessage (toBare to) thread jid (T.pack $ show mid) Nothing body
+			emit $ ChatMessage (jidToText $ toBare to) thread (jidToText jid) (T.pack $ show mid) T.empty body
 		_ -> emit $ Error $ show tto ++ " is not a valid JID"
-signals _ _ _ s (AcceptSubscription jid) = void $ acceptSubscription jid s
+signals _ _ _ s (AcceptSubscription jidt) = void $ acceptSubscription jid s
+	where
+	Just jid = jidFromText jidt
 
 newStanzaId :: Session -> IO StanzaID
 newStanzaId s = do
@@ -209,8 +210,8 @@ main = do
 			rosterChan <- atomically newTChan
 			roster <- getRoster s
 			mapM_ (\(_,Item {jid = j, name = n}) -> do
-					emit $ PresenceSet j Offline Nothing
-					maybe (return ()) (emit . NickSet j) n
+					emit $ PresenceSet (jidToText j) (T.pack "Offline") T.empty
+					maybe (return ()) (emit . NickSet (jidToText j)) n
 				) $ Map.toList (items roster)
 			void $ forkIO (rosterServer rosterChan (items roster))
 
