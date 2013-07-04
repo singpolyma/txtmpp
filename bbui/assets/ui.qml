@@ -31,6 +31,7 @@ NavigationPane {
 			if(!conversation.page) {
 				conversation.page = conversationDefinition.createObject();
 				conversation.page.newParticipant(fromJid);
+				conversation.page.threadID = threadID;
 				// XXX: show self as participant as well?
 			}
 

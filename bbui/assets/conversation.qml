@@ -3,6 +3,7 @@ import "prettyDate.js" as PrettyDate
 
 Page {
 	property variant participants: []
+	property variant threadID: ""
 
 	function newMessage(subject, body, updated) {
 		messages.append([{body: body, updated: updated}]);
@@ -13,8 +14,11 @@ Page {
 	}
 
 	function newParticipant(fn) {
-		this.participants += [fn];
-		participantLabel.text = "With: " + this.participants;
+		// This hack is because Qt4 properties cannot be real arrays
+		var ps = participants;
+		ps.push(fn);
+		participants = ps;
+		participantLabel.text = "With: " + participants.join(", ");
 	}
 
 	Container {
@@ -57,6 +61,20 @@ Page {
 					}
 				}
 			]
+		}
+
+		TextField {
+			id: chatMessage
+			inputMode: TextFieldInputMode.Chat
+			verticalAlignment: VerticalAlignment.Center
+
+			input {
+				submitKey: SubmitKey.Send
+				onSubmitted: {
+					app.SendChat(participants[0], threadID, chatMessage.text);
+					chatMessage.text = '';
+				}
+			}
 		}
 	}
 }
