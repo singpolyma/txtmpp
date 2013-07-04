@@ -1,0 +1,8 @@
+arm/*
+x86/*
+*.bar
+*.qm
+src/HaskadesBinding.hsc
+src/haskades_run.cpp
+src/haskades_run.h
+assets/.assets.index
