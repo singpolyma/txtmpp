@@ -1,7 +1,13 @@
 module Main (main) where
 
-import Types
+import Application
 import HaskadesBinding
 
 main :: IO ()
-main = haskadesRun "asset:///ui.qml" Slots { }
+main = do
+	let jid = "REDACTED"
+	let pass = "REDACTED"
+
+	handler <- app jid pass
+	haskadesRun "asset:///ui.qml" handler
+	print "Quitting..."
