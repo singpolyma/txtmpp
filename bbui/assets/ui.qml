@@ -37,6 +37,8 @@ NavigationPane {
 			conversations.insert(0, [conversation]);
 			conversation.page.newMessage(subject, body, conversation.updated);
 		});
+
+		navigationPane.push(loginDefinition.createObject());
 	}
 
 	Page {
@@ -72,6 +74,10 @@ NavigationPane {
 		ComponentDefinition {
 			id: conversationDefinition
 			source: "conversation.qml"
+		},
+		ComponentDefinition {
+			id: loginDefinition
+			source: "login.qml"
 		}
 	]
 }

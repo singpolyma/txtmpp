@@ -2,11 +2,14 @@ module Main (main) where
 
 import Control.Monad (forever)
 import System.Environment (getArgs)
+import qualified Data.Text as T
 
 import Application
+import Types
 
 main :: IO ()
 main = do
 	[jid, pass] <- getArgs
-	handler <- app jid pass
+	handler <- app
+	handler (Login (T.pack jid) (T.pack pass))
 	forever (readLn >>= handler)

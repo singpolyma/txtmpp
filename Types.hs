@@ -17,6 +17,7 @@ data SignalToUI =
 	deriving (Show)
 
 data SignalFromUI =
+	Login Text Text |
 	SendChat Text Text Text | -- other side (user or MUC) threadID body
 	AcceptSubscription Text
 	deriving (Read, Show)

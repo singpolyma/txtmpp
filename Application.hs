@@ -3,12 +3,12 @@ module Application (app) where
 
 import Data.Foldable (for_)
 import Control.Applicative
-import Data.IORef (IORef, newIORef)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Data.Maybe (listToMaybe, maybeToList, fromMaybe, isJust)
 import Control.Monad
-import Control.Error (hush)
+import Control.Monad.Trans (liftIO)
+import Control.Error (hush, runEitherT, EitherT(..))
 import Data.Either.Unwrap (unlessLeft)
 import Data.Default (def)
 
@@ -126,8 +126,14 @@ newThreadID jid = do
 	uuid <- UUID.nextRandom
 	return $ T.pack $ show uuid ++ T.unpack (jidToText jid)
 
-signals :: IORef Presence -> TChan JidLockingRequest -> Jid -> Session -> SignalFromUI -> IO ()
-signals _ lockingChan jid s (SendChat tto thread body) =
+signals :: TChan JidLockingRequest -> TChan ConnectionRequest -> SignalFromUI -> IO ()
+signals lockingChan connectionChan (Login jidt pass) =
+	connect connectionChan lockingChan jid pass
+	where
+	Just jid = jidFromText jidt
+signals lockingChan connectionChan (SendChat tto thread body) = do
+	Right s <- syncCall connectionChan GetSession
+	Right jid <- syncCall connectionChan GetJid
 	case jidFromText tto of
 		Just to -> do
 			mid <- newStanzaId s
@@ -135,7 +141,9 @@ signals _ lockingChan jid s (SendChat tto thread body) =
 			sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
 			emit $ ChatMessage (jidToText $ toBare to) thread (jidToText jid) (T.pack $ show mid) T.empty body
 		_ -> emit $ Error $ show tto ++ " is not a valid JID"
-signals _ _ _ s (AcceptSubscription jidt) = void $ acceptSubscription jid s
+signals _ connectionChan (AcceptSubscription jidt) = do
+	Right s <- syncCall connectionChan GetSession
+	void $ acceptSubscription jid s
 	where
 	Just jid = jidFromText jidt
 
@@ -195,16 +203,49 @@ syncCall chan cons = atomically (syncCall' chan cons) >>=
 getRosterSubbed :: TChan RosterRequest -> Jid -> IO Bool
 getRosterSubbed chan jid = syncCall chan (RosterSubbed jid)
 
-app :: String -> String -> IO (SignalFromUI -> IO ())
-app jid pass = do
+data ConnectionRequest =
+	Connect Jid Text |
+	GetSession (TMVar (Either XmppFailure Session)) |
+	GetJid (TMVar (Either XmppFailure Jid))
+
+connectionManager :: TChan ConnectionRequest -> IO ()
+connectionManager chan = next (Left XmppNoStream)
+	where
+	next sessionOrError = atomically (readTChan chan) >>= msg
+		where
+		msg (Connect jid pass) = runEitherT (do
+				session <- EitherT $ authSession jid pass
+				jid' <- fmap (fromMaybe jid) (liftIO $ getJid session)
+				return (session, jid')
+			) >>= next
+		msg (GetSession r) = do
+			atomically $ putTMVar r (fmap fst sessionOrError)
+			next sessionOrError
+		msg (GetJid r) = do
+			atomically $ putTMVar r (fmap snd sessionOrError)
+			next sessionOrError
+
+app :: IO (SignalFromUI -> IO ())
+app = do
 	updateGlobalLogger "Pontarius.Xmpp" $ setLevel DEBUG
 
-	x <- authSession (parseJid jid) (T.pack pass)
+	connectionChan <- atomically newTChan
+	void $ forkIO (connectionManager connectionChan)
+
+	lockingChan <- atomically newTChan
+	void $ forkIO (jidLockingServer lockingChan)
+
+	return (signals lockingChan connectionChan)
+
+connect :: TChan ConnectionRequest -> TChan JidLockingRequest -> Jid -> Text -> IO ()
+connect connectionChan lockingChan jid pass = do
+	atomically $ writeTChan connectionChan (Connect jid pass)
+	x <- syncCall connectionChan GetSession
 
 	case x of
 		Left e -> error (show e)
 		Right s -> do
-			jid <- fmap (fromMaybe (parseJid jid)) (getJid s)
+			jid <- fmap (fromMaybe jid) (getJid s)
 
 			rosterChan <- atomically newTChan
 			roster <- getRoster s
@@ -214,11 +255,7 @@ app jid pass = do
 				) $ Map.toList (items roster)
 			void $ forkIO (rosterServer rosterChan (items roster))
 
-			lockingChan <- atomically newTChan
-			void $ forkIO (jidLockingServer lockingChan)
-
-			sendPresence initialPresence s
-			presence <- newIORef initialPresence
+			True <- sendPresence initialPresence s
 
 			void $ forkIO (presenceStream rosterChan lockingChan =<< dupSession s)
 			void $ forkIO (messageErrors =<< dupSession s)
