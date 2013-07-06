@@ -11,5 +11,5 @@ main :: IO ()
 main = do
 	[jid, pass] <- getArgs
 	handler <- app
-	handler (Login (T.pack jid) (T.pack pass))
+	handler (UpdateAccount (T.pack jid) (T.pack pass))
 	forever (readLn >>= handler)

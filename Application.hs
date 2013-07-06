@@ -1,21 +1,17 @@
 {-# LANGUAGE CPP #-}
 module Application (app) where
 
+import Prelude ()
+import BasicPrelude
 import Data.Foldable (for_)
-import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
-import Data.Maybe (listToMaybe, maybeToList, fromMaybe, isJust)
-import Control.Monad
-import Control.Monad.Trans (liftIO)
-import Control.Error (hush, runEitherT, EitherT(..))
 import Data.Either.Unwrap (unlessLeft)
+import Control.Monad.Trans.State (StateT, runStateT, get, put)
+import Control.Error (hush, runEitherT, EitherT(..), tryAssert, left, note, fmapLT, eitherT, hoistEither)
 import Data.Default (def)
-
-import Data.Text (Text)
+import Filesystem (getAppConfigDirectory, createTree, isFile)
 import qualified Data.Text as T
-
-import Data.Map (Map)
 import qualified Data.Map as Map
 
 import System.Log.Logger
@@ -24,12 +20,15 @@ import Network.Xmpp.Internal (StanzaID(..))
 import Network.Xmpp.IM
 import Network.DNS.Resolver (defaultResolvConf, ResolvConf(..), FileOrNumericHost(..))
 
+import qualified Filesystem.Path.CurrentOS as FilePath
 import qualified Data.UUID.V4 as UUID
+import qualified Database.SQLite.Simple as SQLite
 
 import Types
 import Nick
 import Ping
 import Disco
+import qualified Accounts
 
 import UIMODULE (emit)
 
@@ -85,13 +84,13 @@ presenceStream rosterChan lockingChan s = forever $ do
 		(Nothing,_) -> return ()
 		(Just f, Just (ss,status)) ->
 			-- f includes resource
-			emit $ PresenceSet (jidToText f) (T.pack $ show ss) (T.pack $ show status)
+			emit $ PresenceSet (jidToText f) (show ss) (show status)
 
 messageErrors :: Session -> IO ()
 messageErrors s = forever $ do
 	m <- waitForMessageError (const True) s
 	case messageErrorID m of
-		Just sid -> emit $ MessageErr $ T.pack $ show sid
+		Just sid -> emit $ MessageErr $ show sid
 		Nothing -> return ()
 
 ims :: TChan JidLockingRequest -> Jid -> Session -> IO ()
@@ -100,7 +99,7 @@ ims lockingChan jid s = forever $ do
 	-- TODO: handle blank from/id ?  Inbound shouldn't have it, but shouldn't crash...
 	let Just otherJid = otherSide jid m
 	let Just from = messageFrom m
-	let Just id = fmap (T.pack . show) (messageID m)
+	let Just id = fmap show (messageID m)
 
 	--unlessLeft (getNick $ messagePayload m) (emit . NickSet (jidToText from))
 
@@ -114,7 +113,7 @@ ims lockingChan jid s = forever $ do
 		(Nothing, Nothing) -> return () -- ignore completely empty message
 		_ -> do
 			thread <- maybe (newThreadID jid) return (fmap threadID $ imThread =<< im)
-			emit $ ChatMessage (jidToText otherJid) thread (jidToText from) id (T.pack $ show subject) (fromMaybe (T.pack "") body)
+			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (show subject) (fromMaybe (T.pack "") body)
 
 otherSide :: Jid -> Message -> Maybe Jid
 otherSide myjid (Message {messageFrom = from, messageTo = to})
@@ -124,26 +123,46 @@ otherSide myjid (Message {messageFrom = from, messageTo = to})
 newThreadID :: Jid -> IO Text
 newThreadID jid = do
 	uuid <- UUID.nextRandom
-	return $ T.pack $ show uuid ++ T.unpack (jidToText jid)
+	return $ show uuid ++ jidToText jid
 
-signals :: TChan JidLockingRequest -> TChan ConnectionRequest -> SignalFromUI -> IO ()
-signals lockingChan connectionChan (Login jidt pass) =
-	connect connectionChan lockingChan jid pass
-	where
-	Just jid = jidFromText jidt
-signals lockingChan connectionChan (SendChat tto thread body) = do
-	Right s <- syncCall connectionChan GetSession
-	Right jid <- syncCall connectionChan GetJid
-	case jidFromText tto of
-		Just to -> do
-			mid <- newStanzaId s
-			to' <- syncCall lockingChan (JidGetLocked to)
-			sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
-			emit $ ChatMessage (jidToText $ toBare to) thread (jidToText jid) (T.pack $ show mid) T.empty body
-		_ -> emit $ Error $ show tto ++ " is not a valid JID"
-signals _ connectionChan (AcceptSubscription jidt) = do
-	Right s <- syncCall connectionChan GetSession
-	void $ acceptSubscription jid s
+jidOrError :: Text -> (Jid -> IO ()) -> IO ()
+jidOrError txt io =
+	case jidFromText txt of
+		Just jid -> io jid
+		Nothing -> emit $ Error $ T.unpack txt ++ " is not a valid JID"
+
+jidParse :: Text -> Either String Jid
+jidParse txt = note (T.unpack txt ++ " is not a valid JID") (jidFromText txt)
+
+connErr :: (Show e) => Jid -> e -> String
+connErr jid e = "Connection for " ++ T.unpack (jidToText jid) ++ " failed with: " ++ T.unpack (show e)
+
+signals :: TChan JidLockingRequest -> TChan ConnectionRequest -> SQLite.Connection -> SignalFromUI -> IO ()
+signals _ connectionChan db (UpdateAccount jidt pass) = do
+		jidOrError jidt (Accounts.update db . (`Accounts.Account` pass))
+		atomically $ writeTChan connectionChan RefreshAccounts
+signals _ connectionChan db (RemoveAccount jidt) = do
+		jidOrError jidt (Accounts.remove db)
+		atomically $ writeTChan connectionChan RefreshAccounts
+signals lockingChan connectionChan _ (SendChat taccountJid tto thread body) =
+	eitherT (emit . Error) return $ do
+		ajid <- hoistEither (jidParse taccountJid)
+		to <- hoistEither (jidParse tto)
+		s <- fmapLT (connErr ajid) $ EitherT $ syncCall connectionChan (GetSession ajid)
+		jid <- fmapLT (connErr ajid) $ EitherT $ syncCall connectionChan (GetFullJid ajid)
+
+		mid <- liftIO $ newStanzaId s
+		to' <- liftIO $ syncCall lockingChan (JidGetLocked to)
+
+		sent <- liftIO $ sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
+		tryAssert (connErr ajid XmppNoStream) sent
+
+		liftIO $ emit $ ChatMessage (jidToText $ toBare ajid) (jidToText $ toBare to) thread (jidToText jid) (show mid) T.empty body
+signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
+	eitherT (emit . Error) return $ do
+		ajid <- hoistEither (jidParse taccountJid)
+		s <- fmapLT (connErr ajid) $ EitherT $ syncCall connectionChan (GetSession ajid)
+		liftIO $ void $ acceptSubscription jid s
 	where
 	Just jid = jidFromText jidt
 
@@ -204,68 +223,110 @@ getRosterSubbed :: TChan RosterRequest -> Jid -> IO Bool
 getRosterSubbed chan jid = syncCall chan (RosterSubbed jid)
 
 data ConnectionRequest =
-	Connect Jid Text |
-	GetSession (TMVar (Either XmppFailure Session)) |
-	GetJid (TMVar (Either XmppFailure Jid))
+	RefreshAccounts |
+	GetSession Jid (TMVar (Either XmppFailure Session)) |
+	GetFullJid Jid (TMVar (Either XmppFailure Jid))
 
-connectionManager :: TChan ConnectionRequest -> IO ()
-connectionManager chan = next (Left XmppNoStream)
+data Connection = Connection {
+		connectionSession :: Session,
+		connectionJid :: Jid,
+		connectionCleanup :: IO ()
+	}
+
+maybeConnect :: (MonadIO m) => TChan JidLockingRequest -> Accounts.Account -> Maybe (Either XmppFailure Connection) -> m (Either XmppFailure Connection)
+maybeConnect lc (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
+	session <- EitherT $ authSession jid pass
+	jid' <- fmap (fromMaybe jid) (liftIO $ getJid session)
+
+	-- Get roster and emit to UI
+	roster <- liftIO $ getRoster session
+	liftIO $ mapM_ (\(_,Item {jid = j, name = n}) -> do
+			emit $ PresenceSet (jidToText j) (T.pack "Offline") T.empty
+			maybe (return ()) (emit . NickSet (jidToText j)) n
+		) $ Map.toList (items roster)
+
+	-- Now send presence, so that we get presence from others
+	sent <- liftIO $ sendPresence initialPresence session
+	tryAssert XmppNoStream sent
+
+	-- Roster server
+	rosterChan <- liftIO $ atomically newTChan
+	rosterThread <- liftIO $ forkIO (rosterServer rosterChan (items roster))
+
+	-- Stanza handling threads
+	imThread <- liftIO $ forkIO (ims lc jid' session)
+	errThread <- liftIO $ forkIO (messageErrors =<< dupSession session)
+	pThread <- liftIO $ forkIO (presenceStream rosterChan lc =<< dupSession session)
+
+	disco <- liftIO $ startDisco (getRosterSubbed rosterChan) [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack APPNAME) Nothing] session
+	case disco of
+		Just disco -> do
+			pingThread <- liftIO $ forkIO (void $ respondToPing (getRosterSubbed rosterChan) disco session)
+			return $ Connection session jid' (do
+					mapM_ killThread [imThread, errThread, pThread, rosterThread, pingThread]
+					stopDisco disco
+				)
+		Nothing -> do
+			liftIO $ mapM_ killThread [rosterThread, imThread, errThread, pThread]
+			left XmppNoStream
 	where
-	next sessionOrError = atomically (readTChan chan) >>= msg
-		where
-		msg (Connect jid pass) = runEitherT (do
-				session <- EitherT $ authSession jid pass
-				jid' <- fmap (fromMaybe jid) (liftIO $ getJid session)
-				return (session, jid')
-			) >>= next
-		msg (GetSession r) = do
-			atomically $ putTMVar r (fmap fst sessionOrError)
-			next sessionOrError
-		msg (GetJid r) = do
-			atomically $ putTMVar r (fmap snd sessionOrError)
-			next sessionOrError
+	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just 12)) presenceOnline
+maybeConnect lc a (Just (Left _)) = maybeConnect lc a Nothing
+maybeConnect _ _ (Just x) = return x
+
+lookupConnection :: (Functor m, Monad m) => Jid -> StateT (Map Jid (Either XmppFailure Connection)) m (Either XmppFailure Connection)
+lookupConnection jid =
+	fmap (fromMaybe (Left XmppNoStream) . Map.lookup (toBare jid)) get
+
+connectionManager :: TChan ConnectionRequest -> TChan JidLockingRequest -> SQLite.Connection -> IO ()
+connectionManager chan lockingChan db = void $ runStateT
+	(forever $ liftIO (atomically $ readTChan chan) >>= msg) empty
+	where
+	msg RefreshAccounts = do
+		oldAccounts <- get
+		accounts <- Accounts.get db
+
+		-- Add any new accounts, and reconnect any failed accounts
+		put =<< foldM (\m a@(Accounts.Account jid _) -> do
+				a' <- maybeConnect lockingChan a $ Map.lookup (toBare jid) m
+				return $! Map.insert (toBare jid) a' m
+			) empty accounts
+
+		-- Kill dead threads
+		mapM_ (\k -> case Map.lookup k oldAccounts of
+				Just (Right (Connection _ _ cleanup)) -> liftIO cleanup
+				_ -> return ()
+			) (Map.keys oldAccounts \\ map Accounts.jid accounts)
+	msg (GetSession jid r) =
+		lookupConnection jid >>= liftIO . atomically . putTMVar r . fmap connectionSession
+	msg (GetFullJid jid r) =
+		lookupConnection jid >>= liftIO . atomically . putTMVar r . fmap connectionJid
 
 app :: IO (SignalFromUI -> IO ())
 app = do
 	updateGlobalLogger "Pontarius.Xmpp" $ setLevel DEBUG
 
-	connectionChan <- atomically newTChan
-	void $ forkIO (connectionManager connectionChan)
+	dir <- getAppConfigDirectory (T.pack APPNAME)
+	let dbPath = dir </> FilePath.fromText (T.pack "db.sqlite3")
+	createTree dir
+	dbExists <- isFile dbPath
+	db <- SQLite.open (FilePath.encodeString dbPath)
+
+	-- Create tables if the DB is new
+	unless dbExists (Accounts.createTable db)
 
 	lockingChan <- atomically newTChan
 	void $ forkIO (jidLockingServer lockingChan)
 
-	return (signals lockingChan connectionChan)
+	connectionChan <- atomically newTChan
+	void $ forkIO (connectionManager connectionChan lockingChan db)
 
-connect :: TChan ConnectionRequest -> TChan JidLockingRequest -> Jid -> Text -> IO ()
-connect connectionChan lockingChan jid pass = do
-	atomically $ writeTChan connectionChan (Connect jid pass)
-	x <- syncCall connectionChan GetSession
+	atomically $ writeTChan connectionChan RefreshAccounts
 
-	case x of
-		Left e -> error (show e)
-		Right s -> do
-			jid <- fmap (fromMaybe jid) (getJid s)
+	return (signals lockingChan connectionChan db)
 
-			rosterChan <- atomically newTChan
-			roster <- getRoster s
-			mapM_ (\(_,Item {jid = j, name = n}) -> do
-					emit $ PresenceSet (jidToText j) (T.pack "Offline") T.empty
-					maybe (return ()) (emit . NickSet (jidToText j)) n
-				) $ Map.toList (items roster)
-			void $ forkIO (rosterServer rosterChan (items roster))
-
-			True <- sendPresence initialPresence s
-
-			void $ forkIO (presenceStream rosterChan lockingChan =<< dupSession s)
-			void $ forkIO (messageErrors =<< dupSession s)
-			void $ forkIO (ims lockingChan jid s)
-			Just disco <- startDisco (getRosterSubbed rosterChan) [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack "txtmpp") Nothing] s
-			void $ forkIO (void $ respondToPing (getRosterSubbed rosterChan) disco s)
-
-			-- Should do service disco, etc
+{-
+			-- TODO: Should do service disco, etc -- report to connection manager when connection has failed
 			void $ forkIO (forever $ doPing (parseJid "singpolyma.net") s >>= print >> threadDelay 30000000)
 
-			return (signals presence lockingChan jid s)
-	where
-	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just   12)) presenceOnline
+-}
