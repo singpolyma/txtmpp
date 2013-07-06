@@ -144,6 +144,8 @@ signals _ connectionChan db (UpdateAccount jidt pass) = do
 signals _ connectionChan db (RemoveAccount jidt) = do
 		jidOrError jidt (Accounts.remove db)
 		atomically $ writeTChan connectionChan RefreshAccounts
+signals _ connectionChan _ Ready = do
+		atomically $ writeTChan connectionChan RefreshAccounts
 signals lockingChan connectionChan _ (SendChat taccountJid tto thread body) =
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
@@ -286,6 +288,8 @@ connectionManager chan lockingChan db = void $ runStateT
 		oldAccounts <- get
 		accounts <- Accounts.get db
 
+		when (null accounts) (emit NoAccounts)
+
 		-- Add any new accounts, and reconnect any failed accounts
 		put =<< foldM (\m a@(Accounts.Account jid _) -> do
 				a' <- maybeConnect lockingChan a $ Map.lookup (toBare jid) m
@@ -320,8 +324,6 @@ app = do
 
 	connectionChan <- atomically newTChan
 	void $ forkIO (connectionManager connectionChan lockingChan db)
-
-	atomically $ writeTChan connectionChan RefreshAccounts
 
 	return (signals lockingChan connectionChan db)
 

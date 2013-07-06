@@ -12,10 +12,12 @@ data SignalToUI =
 	SubscriptionRequest Text |
 	ChatMessage Text Text Text Text Text Text Text | -- AccountBareJid otherSide (user or MUC) threadID fromJid stanzaID subject body
 	MessageErr Text | -- stanzaID of message that errored
+	NoAccounts |
 	Error String
 	deriving (Show)
 
 data SignalFromUI =
+	Ready |
 	UpdateAccount Text Text | -- Jid Password
 	RemoveAccount Text | -- Jid
 	SendChat Text Text Text Text | -- AccountBareJid otherSide (user or MUC) threadID body

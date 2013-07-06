@@ -2,7 +2,7 @@ QMAKE_TARGET  = txtmpp
 QMAKE         = $(QNX_HOST)/usr/bin/qmake
 TARGET        = $(QMAKE_TARGET)
 GHC_X86       = $(HOME)/src/ghc-qnx-nto-i486/inplace/bin/ghc-stage1 -O2 -XHaskell98 -Wall -fno-warn-name-shadowing -lsocket -DUIMODULE=HaskadesBinding
-GHC_ARM       = $(HOME)/src/ghc-qnx-nto-arm/inplace/bin/ghc-stage1 -O2 -XHaskell98 -Wall -fno-warn-name-shadowing -lsocket -lcaps -DUIMODULE=HaskadesBinding
+GHC_ARM       = $(HOME)/src/ghc-qnx-nto-arm/inplace/bin/ghc-stage1 -O2 -XHaskell98 -Wall -fno-warn-name-shadowing -lsocket -lcaps -DUIMODULE=HaskadesBinding -DAPPNAME=\"txtmpp\"
 HASKADES      = haskades
 
 all: Makefile $(QMAKE_TARGET)

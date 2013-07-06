@@ -4,6 +4,7 @@ import "prettyDate.js" as PrettyDate
 Page {
 	property variant participants: []
 	property variant threadID: ""
+	property variant accountJid: ""
 
 	function newMessage(subject, body, updated) {
 		messages.append([{body: body, updated: updated}]);
@@ -71,7 +72,7 @@ Page {
 			input {
 				submitKey: SubmitKey.Send
 				onSubmitted: {
-					app.SendChat(participants[0], threadID, chatMessage.text);
+					app.SendChat(accountJid, participants[0], threadID, chatMessage.text);
 					chatMessage.text = '';
 				}
 			}

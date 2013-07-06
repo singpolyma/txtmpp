@@ -1,6 +1,6 @@
 module Accounts where
 
-import Prelude ()
+import Prelude (Show(..))
 import BasicPrelude
 import Control.Error
 import qualified Control.Applicative (empty)
@@ -16,6 +16,9 @@ data Account = Account {
 		jid :: Jid,
 		password :: Text
 	}
+
+instance Show Account where
+	show (Account jid _) = "Account " ++ T.unpack (jidToText jid) ++ " REDACTED"
 
 -- Orphan instance should live upstream
 instance MonadPlus RowParser where

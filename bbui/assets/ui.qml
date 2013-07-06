@@ -9,7 +9,7 @@ NavigationPane {
 	onCreationCompleted: {
 		/* Init UI */
 
-		app.ChatMessage.connect(function(otherSide, threadID, fromJid, stanzaID, subject, body) {
+		app.ChatMessage.connect(function(accountJid, otherSide, threadID, fromJid, stanzaID, subject, body) {
 			var conversation = {};
 
 			// TODO: think about what happens with a very long list
@@ -22,6 +22,7 @@ NavigationPane {
 				}
 			}
 
+			conversation.accountJid = accountJid;
 			conversation.lastMessage = body;
 			conversation.fn = fromJid;
 			conversation.updated = new Date();
@@ -31,6 +32,7 @@ NavigationPane {
 			if(!conversation.page) {
 				conversation.page = conversationDefinition.createObject();
 				conversation.page.newParticipant(fromJid);
+				conversation.page.accountJid = accountJid;
 				conversation.page.threadID = threadID;
 				// XXX: show self as participant as well?
 			}
@@ -39,7 +41,11 @@ NavigationPane {
 			conversation.page.newMessage(subject, body, conversation.updated);
 		});
 
-		navigationPane.push(loginDefinition.createObject());
+		app.NoAccounts.connect(function() {
+			navigationPane.push(loginDefinition.createObject());
+		});
+
+		app.Ready();
 	}
 
 	Page {
