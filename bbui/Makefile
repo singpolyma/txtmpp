@@ -22,8 +22,8 @@ clean:
 	$(RM) ./src/HaskadesBinding.hs ./src/haskades_run.cpp
 	$(RM) ./x86/o/.obj/*
 	$(RM) ./x86/o-g/.obj/*
-	$(RM) ./x86/o.le-v7/.obj/*
-	$(RM) ./x86/o.le-v7-g/.obj/*
+	$(RM) ./arm/o.le-v7/.obj/*
+	$(RM) ./arm/o.le-v7-g/.obj/*
 
 Makefile: FORCE src/haskades_run.cpp
 	$(QMAKE) -spec unsupported/blackberry-armv7le-qcc -o arm/Makefile $(QMAKE_TARGET).pro CONFIG+=device
