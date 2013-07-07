@@ -1,13 +1,16 @@
 import bb.cascades 1.0
+
 import "prettyDate.js" as PrettyDate
+import "jid.js" as JID
 
 Page {
 	property variant participants: []
 	property variant threadID: ""
 	property variant accountJid: ""
+	property variant otherSide: ""
 
-	function newMessage(subject, body, updated) {
-		messages.append([{body: body, updated: updated}]);
+	function newMessage(subject, body, fromJid, updated) {
+		messages.append([{body: body, updated: updated, fromJid: fromJid}]);
 		if(subject && subject != '') {
 			// TODO: empty subject is not the same as no subject
 			subjectLabel.text = subject;
@@ -16,6 +19,7 @@ Page {
 
 	function newParticipant(fn) {
 		// This hack is because Qt4 properties cannot be real arrays
+		// TODO: display nickname? make sure list is unique?
 		var ps = participants;
 		ps.push(fn);
 		participants = ps;
@@ -50,6 +54,10 @@ Page {
 				id: messages
 			}
 
+			function getNickname(jid) {
+				return navigationPane.nicknames[JID.toBare(jid)] || jid;
+			}
+
 			// Use a ListItemComponent to determine which property in the
 			// data model is displayed for each list item
 			listItemComponents: [
@@ -58,6 +66,7 @@ Page {
 
 					StandardListItem {
 						title: ListItemData.body
+						description: ListItem.view.getNickname(ListItemData.fromJid)
 						status: PrettyDate.format(ListItemData.updated)
 					}
 				}
@@ -72,7 +81,7 @@ Page {
 			input {
 				submitKey: SubmitKey.Send
 				onSubmitted: {
-					app.SendChat(accountJid, participants[0], threadID, chatMessage.text);
+					app.SendChat(accountJid, otherSide, threadID, chatMessage.text);
 					chatMessage.text = '';
 				}
 			}

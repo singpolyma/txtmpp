@@ -1,13 +1,21 @@
 import bb.cascades 1.0
 
 import "prettyDate.js" as PrettyDate
+import "jid.js" as JID
 
 NavigationPane {
 	id: navigationPane
-	property bool shouldNotify: false
+	property variant nicknames: {}
 
 	onCreationCompleted: {
 		/* Init UI */
+
+		app.NickSet.connect(function(jid, nickname) {
+			// This hack is because Qt4 properties cannot be real objects
+			var tmp = nicknames;
+			tmp[JID.toBare(jid)] = nickname;
+			nicknames = tmp;
+		});
 
 		app.ChatMessage.connect(function(accountJid, otherSide, threadID, fromJid, stanzaID, subject, body) {
 			var conversation = {};
@@ -24,7 +32,6 @@ NavigationPane {
 
 			conversation.accountJid = accountJid;
 			conversation.lastMessage = body;
-			conversation.fn = fromJid;
 			conversation.updated = new Date();
 			conversation.threadID = threadID;
 			conversation.otherSide = otherSide;
@@ -34,11 +41,12 @@ NavigationPane {
 				conversation.page.newParticipant(fromJid);
 				conversation.page.accountJid = accountJid;
 				conversation.page.threadID = threadID;
+				conversation.page.otherSide = otherSide;
 				// XXX: show self as participant as well?
 			}
 
 			conversations.insert(0, [conversation]);
-			conversation.page.newMessage(subject, body, conversation.updated);
+			conversation.page.newMessage(subject, body, fromJid, conversation.updated);
 		});
 
 		app.NoAccounts.connect(function() {
@@ -55,6 +63,10 @@ NavigationPane {
 					id: conversations
 				}
 
+				function getNickname(jid) {
+					return navigationPane.nicknames[JID.toBare(jid)] || jid;
+				}
+
 				// Use a ListItemComponent to determine which property in the
 				// data model is displayed for each list item
 				listItemComponents: [
@@ -62,7 +74,7 @@ NavigationPane {
 						type: ""
 
 						StandardListItem {
-							title: ListItemData.fn
+							title: ListItem.view.getNickname(ListItemData.otherSide)
 							description: ListItemData.lastMessage
 							status: PrettyDate.format(ListItemData.updated)
 						}
