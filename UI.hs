@@ -1,6 +1,8 @@
 module UI (emit) where
 
+import Prelude ()
+import BasicPrelude
 import Types
 
-emit :: SignalToUI -> IO ()
-emit = print
+emit :: (MonadIO m) => SignalToUI -> m ()
+emit = liftIO . print
