@@ -1,4 +1,5 @@
 import bb.cascades 1.0
+import bb.system 1.0
 
 import "prettyDate.js" as PrettyDate
 import "jid.js" as JID
@@ -9,6 +10,12 @@ NavigationPane {
 
 	onCreationCompleted: {
 		/* Init UI */
+
+		app.Error.connect(function(msg) {
+			console.log("ERROR: " + msg);
+			errorDialog.body = msg;
+			errorDialog.show();
+		});
 
 		app.NickSet.connect(function(jid, nickname) {
 			// This hack is because Qt4 properties cannot be real objects
@@ -90,6 +97,12 @@ NavigationPane {
 	}
 
 	attachedObjects: [
+		SystemDialog {
+			id: errorDialog
+			cancelButton.label: undefined
+			title: "Error"
+			body: ""
+		},
 		ComponentDefinition {
 			id: conversationDefinition
 			source: "conversation.qml"
