@@ -292,7 +292,7 @@ connectionManager chan lockingChan db = void $ runStateT
 
 		-- Add any new accounts, and reconnect any failed accounts
 		put =<< foldM (\m a@(Accounts.Account jid _) -> do
-				a' <- maybeConnect lockingChan a $ Map.lookup (toBare jid) m
+				a' <- maybeConnect lockingChan a $ Map.lookup (toBare jid) oldAccounts
 				return $! Map.insert (toBare jid) a' m
 			) empty accounts
 
