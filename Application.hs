@@ -144,7 +144,7 @@ signals _ connectionChan db (UpdateAccount jidt pass) = do
 signals _ connectionChan db (RemoveAccount jidt) = do
 		jidOrError jidt (Accounts.remove db)
 		atomically $ writeTChan connectionChan RefreshAccounts
-signals _ connectionChan _ Ready = do
+signals _ connectionChan _ Ready =
 		atomically $ writeTChan connectionChan RefreshAccounts
 signals lockingChan connectionChan _ (SendChat taccountJid tto thread body) =
 	eitherT (emit . Error) return $ do
