@@ -11,6 +11,8 @@ Page {
 
 	function newMessage(subject, body, fromJid, updated) {
 		messages.append([{body: body, updated: updated, fromJid: fromJid}]);
+		messagesView.scrollToPosition(ScrollPosition.End, ScrollAnimation.None);
+
 		if(subject && subject != '') {
 			// TODO: empty subject is not the same as no subject
 			subjectLabel.text = subject;
@@ -50,6 +52,8 @@ Page {
 		}
 
 		ListView {
+			id: messagesView
+
 			dataModel: ArrayDataModel {
 				id: messages
 			}
