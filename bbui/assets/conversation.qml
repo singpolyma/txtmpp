@@ -1,13 +1,25 @@
 import bb.cascades 1.0
+import bb.platform 1.0
 
 import "prettyDate.js" as PrettyDate
 import "jid.js" as JID
 
 Page {
 	property variant participants: []
-	property variant threadID: ""
-	property variant accountJid: ""
-	property variant otherSide: ""
+	property variant threadID
+	property variant accountJid
+	property variant otherSide
+	property variant onTop: false
+
+	function isOnTop() {
+		onTop = true;
+		// Will want to use notify.key to work between sessions
+		notify.clearEffects();
+	}
+
+	function isNotOnTop() {
+		onTop = false;
+	}
 
 	function newMessage(subject, body, fromJid, updated) {
 		messages.append([{body: body, updated: updated, fromJid: fromJid}]);
@@ -16,6 +28,19 @@ Page {
 		if(subject && subject != '') {
 			// TODO: empty subject is not the same as no subject
 			subjectLabel.text = subject;
+		}
+
+		if(!onTop) {
+			// Do this to force it to notify again
+			notify.clearEffects();
+			notify.deleteFromInbox();
+			notify.resetTimestamp();
+
+			notify.title = participants.join(", ");
+			if(subject && subject != '') notify.title += ' (' + subject + ')';
+			notify.body = body;
+
+			notify.notify();
 		}
 	}
 
@@ -91,4 +116,10 @@ Page {
 			}
 		}
 	}
+
+	attachedObjects: [
+		Notification {
+			id: notify
+		}
+	]
 }

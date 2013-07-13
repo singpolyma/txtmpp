@@ -11,6 +11,14 @@ NavigationPane {
 	onCreationCompleted: {
 		/* Init UI */
 
+		Application.awake.connect(function() {
+			if(navigationPane.top.isOnTop) navigationPane.top.isOnTop();
+		});
+
+		Application.asleep.connect(function() {
+			if(navigationPane.top.isNotOnTop) navigationPane.top.isNotOnTop();
+		});
+
 		app.Error.connect(function(msg) {
 			console.log("ERROR: " + msg);
 			errorDialog.body = msg;
@@ -61,6 +69,20 @@ NavigationPane {
 		});
 
 		app.Ready();
+	}
+
+	onTopChanged: {
+		if(page.isOnTop) page.isOnTop();
+	}
+
+	onPopTransitionEnded: {
+		if(page.isNotOnTop) page.isNotOnTop();
+	}
+
+	onNavigateToTransitionEnded: {
+		for(var i = 0; i < pages.length; i++) {
+			if(pages[i].isNotOnTop) pages[i].isNotOnTop();
+		}
 	}
 
 	Page {
