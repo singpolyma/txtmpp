@@ -8,7 +8,7 @@ data Status = SS ShowStatus | Online | Offline
 
 data SignalToUI =
 	NickSet Text Text |
-	PresenceSet Text Text Text |
+	PresenceSet Text Text Text Text | -- AccountBareJid JID status msg
 	SubscriptionRequest Text |
 	ChatMessage Text Text Text Text Text Text Text | -- AccountBareJid otherSide (user or MUC) threadID fromJid stanzaID subject body
 	MessageErr Text | -- stanzaID of message that errored

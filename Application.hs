@@ -63,8 +63,8 @@ presenceStatus p = case (presenceType p, getIMPresence p) of
 acceptSubscription :: Jid -> Session -> IO Bool
 acceptSubscription = sendPresence . presenceSubscribed
 
-presenceStream :: TChan RosterRequest -> TChan JidLockingRequest -> Session -> IO ()
-presenceStream rosterChan lockingChan s = forever $ do
+presenceStream :: TChan RosterRequest -> TChan JidLockingRequest -> Jid -> Session -> IO ()
+presenceStream rosterChan lockingChan accountJid s = forever $ do
 	-- Does not filter out ourselves or other instances of our account
 	p <- waitForPresence (const True) s
 
@@ -84,7 +84,7 @@ presenceStream rosterChan lockingChan s = forever $ do
 		(Nothing,_) -> return ()
 		(Just f, Just (ss,status)) ->
 			-- f includes resource
-			emit $ PresenceSet (jidToText f) (show ss) (show status)
+			emit $ PresenceSet (jidToText $ toBare accountJid) (jidToText f) (show ss) (show status)
 
 messageErrors :: Session -> IO ()
 messageErrors s = forever $ do
@@ -243,7 +243,7 @@ maybeConnect lc (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
 	-- Get roster and emit to UI
 	roster <- liftIO $ getRoster session
 	liftIO $ mapM_ (\(_,Item {jid = j, name = n}) -> do
-			emit $ PresenceSet (jidToText j) (T.pack "Offline") T.empty
+			emit $ PresenceSet (jidToText $ toBare jid') (jidToText j) (T.pack "Offline") T.empty
 			maybe (return ()) (emit . NickSet (jidToText j)) n
 		) $ Map.toList (items roster)
 
@@ -258,7 +258,7 @@ maybeConnect lc (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
 	-- Stanza handling threads
 	imThread <- liftIO $ forkIO (ims lc jid' session)
 	errThread <- liftIO $ forkIO (messageErrors =<< dupSession session)
-	pThread <- liftIO $ forkIO (presenceStream rosterChan lc =<< dupSession session)
+	pThread <- liftIO $ forkIO (presenceStream rosterChan lc jid' =<< dupSession session)
 
 	disco <- liftIO $ startDisco (getRosterSubbed rosterChan) [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack APPNAME) Nothing] session
 	case disco of
