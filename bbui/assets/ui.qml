@@ -79,6 +79,33 @@ NavigationPane {
 			navigationPane.push(loginDefinition.createObject());
 		});
 
+		app.PresenceSet.connect(function(accountJid, jid, ss, msg) {
+			var otherSide = JID.toBare(jid);
+			var found = false;
+
+			for(var i = 0; i < conversations.size(); i++) {
+				var val = conversations.value(i);
+				if(val.otherSide == otherSide) found = true;
+			}
+
+			if(!found) {
+				var page = conversationDefinition.createObject();
+				page.newParticipant(jid);
+				page.accountJid = accountJid;
+				page.threadID = (jid + new Date()); // TODO
+				page.otherSide = otherSide;
+
+				conversations.insert(0, [{
+					accountJid: accountJid,
+					lastMessage: msg,
+					updated: new Date(),
+					threadID: page.threadID,
+					otherSide: otherSide,
+					page: page
+				}]);
+			}
+		});
+
 		app.Ready();
 	}
 
