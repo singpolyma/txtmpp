@@ -84,7 +84,7 @@ presenceStream rosterChan lockingChan accountJid s = forever $ do
 		(Nothing,_) -> return ()
 		(Just f, Just (ss,status)) ->
 			-- f includes resource
-			emit $ PresenceSet (jidToText $ toBare accountJid) (jidToText f) (show ss) (show status)
+			emit $ PresenceSet (jidToText $ toBare accountJid) (jidToText f) (show ss) (maybe T.empty show status)
 
 messageErrors :: Session -> IO ()
 messageErrors s = forever $ do
