@@ -113,7 +113,7 @@ ims lockingChan jid s = forever $ do
 		(Nothing, Nothing) -> return () -- ignore completely empty message
 		_ -> do
 			thread <- maybe (newThreadID jid) return (fmap threadID $ imThread =<< im)
-			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (show subject) (fromMaybe (T.pack "") body)
+			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (maybe T.empty show subject) (fromMaybe (T.pack "") body)
 
 otherSide :: Jid -> Message -> Maybe Jid
 otherSide myjid (Message {messageFrom = from, messageTo = to})
