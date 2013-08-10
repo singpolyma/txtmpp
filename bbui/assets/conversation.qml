@@ -40,6 +40,8 @@ Page {
 			if(subject && subject != '') notify.title += ' (' + subject + ')';
 			notify.body = body;
 
+			app.addInvokeRequestToNotification(notify, 'net.singpolyma.txtmpp.conversation', 'bb.action.OPEN', 'application/x-xmpp-conversation', '', threadID);
+
 			notify.notify();
 		}
 	}

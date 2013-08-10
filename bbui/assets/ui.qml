@@ -11,6 +11,17 @@ NavigationPane {
 	onCreationCompleted: {
 		/* Init UI */
 
+		app.invoked.connect(function(target, act, mimeType, uri, data) {
+			if(mimeType == "application/x-xmpp-conversation") {
+				for(var i = 0; i < conversations.size(); i++) {
+					var val = conversations.value(i);
+					if(val.threadID == data) {
+						navigationPane.push(val.page);
+					}
+				}
+			}
+		});
+
 		Application.awake.connect(function() {
 			if(navigationPane.top.isOnTop) navigationPane.top.isOnTop();
 		});

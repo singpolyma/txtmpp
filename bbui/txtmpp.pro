@@ -7,7 +7,7 @@ INCLUDEPATH += ../src
 SOURCES += ../src/*.cpp
 HEADERS += ../src/*.h
 LIBS += -lbbsystem -lbbplatform
-DEFINES += USE_NOTIFICATIONS
+DEFINES += USE_NOTIFICATIONS USE_INVOCATIONS
 
 lupdate_inclusion {
 	SOURCES += ../assets/*.qml

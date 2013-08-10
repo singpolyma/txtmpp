@@ -67,6 +67,15 @@
 		<include name="*.qm"/>
 	</asset>
 
+	<invoke-target id="net.singpolyma.txtmpp.conversation">
+		<invoke-target-type>application</invoke-target-type>
+		<invoke-target-name>txtmpp</invoke-target-name>
+		<filter>
+			<action>bb.action.OPEN</action>
+			<mime-type>application/x-xmpp-conversation</mime-type>
+		</filter>
+	</invoke-target>
+
 	<!-- Request permission to execute native code.  Required for native applications. -->
 	<permission system="true">run_native</permission>
 	<permission>access_internet</permission>
