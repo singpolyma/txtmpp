@@ -40,6 +40,7 @@ instance ToRow Account where
 
 qs :: String -> Query
 qs = Query . T.pack
+{-# INLINE qs #-}
 
 createTable :: Connection -> IO ()
 createTable conn =
