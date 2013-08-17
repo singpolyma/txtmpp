@@ -29,6 +29,7 @@ import Nick
 import Ping
 import Disco
 import qualified Accounts
+import qualified Messages
 
 import UIMODULE (emit)
 
@@ -93,8 +94,8 @@ messageErrors s = forever $ do
 		Just sid -> emit $ MessageErr $ show sid
 		Nothing -> return ()
 
-ims :: TChan JidLockingRequest -> Jid -> Session -> IO ()
-ims lockingChan jid s = forever $ do
+ims :: TChan JidLockingRequest -> SQLite.Connection -> Jid -> Session -> IO ()
+ims lockingChan db jid s = forever $ do
 	m <- getMessage s
 	-- TODO: handle blank from/id ?  Inbound shouldn't have it, but shouldn't crash...
 	let Just otherJid = otherSide jid m
@@ -113,7 +114,10 @@ ims lockingChan jid s = forever $ do
 		(Nothing, Nothing) -> return () -- ignore completely empty message
 		_ -> do
 			thread <- maybe (newThreadID jid) return (fmap threadID $ imThread =<< im)
-			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (maybe T.empty show subject) (fromMaybe (T.pack "") body)
+			let bodyS = fromMaybe T.empty body
+			eitherT (emit . Error . T.unpack . show) return $
+				Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) bodyS
+			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (maybe T.empty show subject) bodyS
 
 otherSide :: Jid -> Message -> Maybe Jid
 otherSide myjid (Message {messageFrom = from, messageTo = to})
@@ -148,7 +152,7 @@ signals _ connectionChan db (RemoveAccount jidt) = do
 		atomically $ writeTChan connectionChan RefreshAccounts
 signals _ connectionChan _ Ready =
 		atomically $ writeTChan connectionChan RefreshAccounts
-signals lockingChan connectionChan _ (SendChat taccountJid tto thread body) =
+signals lockingChan connectionChan db (SendChat taccountJid tto thread body) =
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
 		to <- hoistEither (jidParse tto)
@@ -161,6 +165,8 @@ signals lockingChan connectionChan _ (SendChat taccountJid tto thread body) =
 		sent <- liftIO $ sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
 		tryAssert (connErr ajid XmppNoStream) sent
 
+		eitherT (emit . Error . T.unpack . show) return $
+			Messages.insert db $ Messages.Message jid to to thread (show mid) Nothing body
 		liftIO $ emit $ ChatMessage (jidToText $ toBare ajid) (jidToText $ toBare to) thread (jidToText jid) (show mid) T.empty body
 signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
 	eitherT (emit . Error) return $ do
@@ -237,8 +243,8 @@ data Connection = Connection {
 		connectionCleanup :: IO ()
 	}
 
-maybeConnect :: (MonadIO m) => TChan JidLockingRequest -> Accounts.Account -> Maybe (Either XmppFailure Connection) -> m (Either XmppFailure Connection)
-maybeConnect lc (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
+maybeConnect :: (MonadIO m) => TChan JidLockingRequest -> SQLite.Connection -> Accounts.Account -> Maybe (Either XmppFailure Connection) -> m (Either XmppFailure Connection)
+maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
 	session <- EitherT $ authSession jid pass
 	jid' <- fmap (fromMaybe jid) (liftIO $ getJid session)
 
@@ -258,7 +264,7 @@ maybeConnect lc (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
 	rosterThread <- liftIO $ forkIO (rosterServer rosterChan (items roster))
 
 	-- Stanza handling threads
-	imThread <- liftIO $ forkIO (ims lc jid' session)
+	imThread <- liftIO $ forkIO (ims lc db jid' session)
 	errThread <- liftIO $ forkIO (messageErrors =<< dupSession session)
 	pThread <- liftIO $ forkIO (presenceStream rosterChan lc jid' =<< dupSession session)
 
@@ -275,8 +281,8 @@ maybeConnect lc (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
 			left XmppNoStream
 	where
 	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just 12)) presenceOnline
-maybeConnect lc a (Just (Left _)) = maybeConnect lc a Nothing
-maybeConnect _ _ (Just x) = return x
+maybeConnect lc db a (Just (Left _)) = maybeConnect lc db a Nothing
+maybeConnect _ _ _ (Just x) = return x
 
 lookupConnection :: (Functor m, Monad m) => Jid -> StateT (Map Jid (Either XmppFailure Connection)) m (Either XmppFailure Connection)
 lookupConnection jid =
@@ -294,7 +300,7 @@ connectionManager chan lockingChan db = void $ runStateT
 
 		-- Add any new accounts, and reconnect any failed accounts
 		lift . put =<< foldM (\m a@(Accounts.Account jid _) -> do
-				a' <- maybeConnect lockingChan a $ Map.lookup (toBare jid) oldAccounts
+				a' <- maybeConnect lockingChan db a $ Map.lookup (toBare jid) oldAccounts
 				return $! Map.insert (toBare jid) a' m
 			) empty accounts
 
@@ -321,6 +327,7 @@ app = do
 	-- Create tables if the DB is new
 	unless dbExists $ eitherT (fail . T.unpack . show) return $ do
 		Accounts.createTable db
+		Messages.createTable db
 
 	lockingChan <- atomically newTChan
 	void $ forkIO (jidLockingServer lockingChan)
