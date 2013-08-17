@@ -123,6 +123,30 @@ NavigationPane {
 		}
 	}
 
+	Menu.definition: MenuDefinition {
+		actions: [
+			ActionItem {
+				title: "Join Chatroom"
+				onTriggered: {
+					chatroomPrompt.inputField.inputMode = SystemUiInputMode.Email;
+					chatroomPrompt.show();
+				}
+			}
+		]
+
+		attachedObjects: [
+			SystemPrompt {
+				id: chatroomPrompt
+				title: "Enter Chatroom Address"
+				onFinished: {
+					if(chatroomPrompt.buttonSelection() == chatroomPrompt.confirmButton) {
+						app.JoinChatroom(chatroomPrompt.inputFieldTextEntry());
+					}
+				}
+			}
+		]
+	}
+
 	Page {
 		Container {
 			ListView {
