@@ -8,7 +8,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Data.Either.Unwrap (unlessLeft)
 import Control.Monad.Trans.State (StateT, runStateT, get, put)
-import Control.Error (hush, runEitherT, EitherT(..), tryAssert, left, note, fmapLT, eitherT, hoistEither)
+import Control.Error (hush, runEitherT, EitherT(..), tryAssert, left, note, fmapLT, eitherT, hoistEither, assertZ)
 import Data.Default (def)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
 import qualified Data.Text as T
@@ -125,11 +125,11 @@ newThreadID jid = do
 	uuid <- UUID.nextRandom
 	return $ show uuid ++ jidToText jid
 
-jidOrError :: Text -> (Jid -> IO ()) -> IO ()
+jidOrError :: (MonadIO m) => Text -> (Jid -> m ()) -> m ()
 jidOrError txt io =
 	case jidFromText txt of
 		Just jid -> io jid
-		Nothing -> emit $ Error $ T.unpack txt ++ " is not a valid JID"
+		Nothing -> liftIO $ emit $ Error $ T.unpack txt ++ " is not a valid JID"
 
 jidParse :: Text -> Either String Jid
 jidParse txt = note (T.unpack txt ++ " is not a valid JID") (jidFromText txt)
@@ -139,10 +139,12 @@ connErr jid e = "Connection for " ++ T.unpack (jidToText jid) ++ " failed with: 
 
 signals :: TChan JidLockingRequest -> TChan ConnectionRequest -> SQLite.Connection -> SignalFromUI -> IO ()
 signals _ connectionChan db (UpdateAccount jidt pass) = do
-		jidOrError jidt (Accounts.update db . (`Accounts.Account` pass))
+		eitherT (emit . Error . T.unpack . show) return $
+			jidOrError jidt (Accounts.update db . (`Accounts.Account` pass))
 		atomically $ writeTChan connectionChan RefreshAccounts
 signals _ connectionChan db (RemoveAccount jidt) = do
-		jidOrError jidt (Accounts.remove db)
+		eitherT (emit . Error . T.unpack . show) return $
+			jidOrError jidt (Accounts.remove db)
 		atomically $ writeTChan connectionChan RefreshAccounts
 signals _ connectionChan _ Ready =
 		atomically $ writeTChan connectionChan RefreshAccounts
@@ -284,14 +286,14 @@ connectionManager :: TChan ConnectionRequest -> TChan JidLockingRequest -> SQLit
 connectionManager chan lockingChan db = void $ runStateT
 	(forever $ liftIO (atomically $ readTChan chan) >>= msg) empty
 	where
-	msg RefreshAccounts = do
-		oldAccounts <- get
+	msg RefreshAccounts = eitherT (emit . Error . T.unpack . show) return $ do
+		oldAccounts <- lift get
 		accounts <- Accounts.get db
 
 		when (null accounts) (emit NoAccounts)
 
 		-- Add any new accounts, and reconnect any failed accounts
-		put =<< foldM (\m a@(Accounts.Account jid _) -> do
+		lift . put =<< foldM (\m a@(Accounts.Account jid _) -> do
 				a' <- maybeConnect lockingChan a $ Map.lookup (toBare jid) oldAccounts
 				return $! Map.insert (toBare jid) a' m
 			) empty accounts
@@ -317,7 +319,7 @@ app = do
 	db <- SQLite.open (FilePath.encodeString dbPath)
 
 	-- Create tables if the DB is new
-	unless dbExists (Accounts.createTable db)
+	unless dbExists (Accounts.createTable db >>= assertZ)
 
 	lockingChan <- atomically newTChan
 	void $ forkIO (jidLockingServer lockingChan)

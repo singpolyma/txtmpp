@@ -42,8 +42,8 @@ qs :: String -> Query
 qs = Query . T.pack
 {-# INLINE qs #-}
 
-createTable :: Connection -> IO ()
-createTable conn =
+createTable :: (MonadIO m) => Connection -> m Bool
+createTable conn = eitherT (\_ -> return False) (\_ -> return True) $ syncIO $
 	execute conn (qs"CREATE TABLE accounts (\
 		\ localpart TEXT, \
 		\ domainpart TEXT NOT NULL, \
@@ -54,15 +54,15 @@ createTable conn =
 		\ )") ()
 
 -- | Create or update account (unique index: bare JID)
-update :: (MonadIO m) => Connection -> Account -> m ()
-update conn = liftIO .
+update :: (MonadIO m) => Connection -> Account -> EitherT SomeException m ()
+update conn = syncIO .
 	execute conn (qs"INSERT OR REPLACE INTO accounts VALUES (?,?,?,?)")
 
-remove :: (MonadIO m) => Connection -> Jid -> m ()
-remove conn jid = liftIO $
+remove :: (MonadIO m) => Connection -> Jid -> EitherT SomeException m ()
+remove conn jid = syncIO $
 	execute conn (qs"DELETE FROM accounts WHERE localpart = ? AND domainpart = ?")
 		(localpart jid, domainpart jid)
 
-get :: (MonadIO m) => Connection -> m [Account]
-get conn = liftIO $
+get :: (MonadIO m) => Connection -> EitherT SomeException m [Account]
+get conn = syncIO $
 	query conn (qs "SELECT localpart, domainpart, resourcepart, password FROM accounts") ()
