@@ -6,7 +6,7 @@ CONFIG += qt thread warn_on debug_and_release cascades
 INCLUDEPATH += ../src
 SOURCES += ../src/*.cpp
 HEADERS += ../src/*.h
-LIBS += -lbbsystem -lbbplatform
+LIBS += -lbbsystem -lbbplatform -lbbcascadesdatamanager
 DEFINES += USE_NOTIFICATIONS USE_INVOCATIONS
 
 lupdate_inclusion {

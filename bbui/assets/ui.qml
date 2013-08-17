@@ -1,5 +1,6 @@
-import bb.cascades 1.0
-import bb.system 1.0
+import bb.cascades 1.2
+import bb.system 1.2
+import bb.cascades.datamanager 1.2
 
 import "prettyDate.js" as PrettyDate
 import "jid.js" as JID
@@ -8,192 +9,121 @@ NavigationPane {
 	id: navigationPane
 	property variant nicknames: {}
 
-	onCreationCompleted: {
-		/* Init UI */
-
-		app.invoked.connect(function(target, act, mimeType, uri, data) {
-			if(mimeType == "application/x-xmpp-conversation") {
-				for(var i = 0; i < conversations.size(); i++) {
-					var val = conversations.value(i);
-					if(val.threadID == data) {
-						navigationPane.push(val.page);
-					}
-				}
-			}
-		});
-
-		Application.awake.connect(function() {
-			if(navigationPane.top.isOnTop) navigationPane.top.isOnTop();
-		});
-
-		Application.asleep.connect(function() {
-			if(navigationPane.top.isNotOnTop) navigationPane.top.isNotOnTop();
-		});
-
-		app.Error.connect(function(msg) {
-			console.log("ERROR: " + msg);
-			errorDialog.body = msg;
-			errorDialog.show();
-		});
-
-		app.NickSet.connect(function(jid, nickname) {
-			// This hack is because Qt4 properties cannot be real objects
-			var tmp = nicknames;
-			tmp[JID.toBare(jid)] = nickname;
-			nicknames = tmp;
-		});
-
-		app.ChatMessage.connect(function(accountJid, otherSide, threadID, fromJid, stanzaID, subject, body) {
-			var conversation = {};
-
-			// TODO: think about what happens with a very long list
-			for(var i = 0; i < conversations.size(); i++) {
-				var val = conversations.value(i);
-				if(val.threadID == threadID && val.otherSide == otherSide) {
-					conversation = val;
-					conversations.removeAt(i);
-					break;
-				}
-			}
-
-			conversation.accountJid = accountJid;
-			conversation.lastMessage = body;
-			conversation.updated = new Date();
-			conversation.threadID = threadID;
-			conversation.otherSide = otherSide;
-
-			if(!conversation.page) {
-				conversation.page = conversationDefinition.createObject();
-				conversation.page.newParticipant(fromJid);
-				conversation.page.accountJid = accountJid;
-				conversation.page.threadID = threadID;
-				conversation.page.otherSide = otherSide;
-				// XXX: show self as participant as well?
-			}
-
-			conversations.insert(0, [conversation]);
-			conversation.page.newMessage(subject, body, fromJid, conversation.updated);
-		});
-
-		app.NoAccounts.connect(function() {
-			navigationPane.push(loginDefinition.createObject());
-		});
-
-		app.PresenceSet.connect(function(accountJid, jid, ss, msg) {
-			var otherSide = JID.toBare(jid);
-			var found = false;
-
-			for(var i = 0; i < conversations.size(); i++) {
-				var val = conversations.value(i);
-				if(val.otherSide == otherSide) found = true;
-			}
-
-			if(!found) {
-				var page = conversationDefinition.createObject();
-				page.newParticipant(jid);
-				page.accountJid = accountJid;
-				page.threadID = (jid + new Date()); // TODO
-				page.otherSide = otherSide;
-
-				conversations.insert(0, [{
-					accountJid: accountJid,
-					lastMessage: msg,
-					updated: new Date(),
-					threadID: page.threadID,
-					otherSide: otherSide,
-					page: page
-				}]);
-			}
-		});
-
-		app.Ready();
-	}
-
-	onTopChanged: {
-		if(page.isOnTop) page.isOnTop();
-	}
-
-	onPopTransitionEnded: {
-		if(page.isNotOnTop) page.isNotOnTop();
-	}
-
-	onNavigateToTransitionEnded: {
-		for(var i = 0; i < pages.length; i++) {
-			if(pages[i].isNotOnTop) pages[i].isNotOnTop();
-		}
-	}
-
-	Menu.definition: MenuDefinition {
-		actions: [
-			ActionItem {
-				title: "Join Chatroom"
-				onTriggered: {
-					chatroomPrompt.inputField.inputMode = SystemUiInputMode.Email;
-					chatroomPrompt.show();
-				}
-			}
-		]
-
-		attachedObjects: [
-			SystemPrompt {
-				id: chatroomPrompt
-				title: "Enter Chatroom Address"
-				onFinished: {
-					if(chatroomPrompt.buttonSelection() == chatroomPrompt.confirmButton) {
-						app.JoinChatroom(chatroomPrompt.inputFieldTextEntry());
-					}
-				}
-			}
-		]
-	}
-
 	Page {
 		Container {
 			ListView {
-				dataModel: ArrayDataModel {
-					id: conversations
-				}
+				id: conversationsView
+				dataModel: dm
 
 				function getNickname(jid) {
-					return navigationPane.nicknames[JID.toBare(jid)] || jid;
+					return navigationPane.nicknames[JID.toBare(jid)] || JID.localpart(jid);
 				}
 
-				// Use a ListItemComponent to determine which property in the
-				// data model is displayed for each list item
 				listItemComponents: [
 					ListItemComponent {
-						type: ""
-
 						StandardListItem {
 							title: ListItem.view.getNickname(ListItemData.otherSide)
 							description: ListItemData.lastMessage
-							status: PrettyDate.format(ListItemData.updated)
+							status: PrettyDate.format(new Date(ListItemData.time * 1000))
 						}
 					}
 				]
 
 				onTriggered: {
 					var conversation = dataModel.data(indexPath);
-					navigationPane.push(conversation.page);
+					var page = conversationDefinition.createObject();
+					page.setup(conversation.jid, conversation.otherSide);
+					navigationPane.push(page);
 				}
 			}
+
+			attachedObjects: [
+				AsyncDataModel {
+					id: dm
+					cacheSize: 20 // this is the default in-memory capacity
+
+					query: SqlDataQuery {
+						source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
+						query: "SELECT MAX(ROWID) as id, 1 AS revision_id, body AS lastMessage, strftime('%s', datetime('now')) AS time, otherSide_localpart || '@' || otherSide_domainpart AS otherSide, to_localpart || '@' || to_domainpart AS jid FROM messages GROUP BY otherSide_localpart, otherSide_domainpart ORDER BY ROWID DESC"
+						countQuery: "SELECT COUNT(*) FROM (SELECT DISTINCT otherSide_localpart, otherSide_domainpart FROM messages)"
+						keyColumn: "id"
+						revisionColumn: "revision_id"
+						revisionQuery: "SELECT 1"
+						onError: console.log("SQL query error: " + code + ", " + message)
+					}
+				}
+			]
+		}
+
+		actions: [
+			ActionItem {
+				title: "Join Chatroom"
+				ActionBar.placement: ActionBarPlacement.OnBar
+				onTriggered: {
+					chatroomPrompt.inputField.inputMode = SystemUiInputMode.Email;
+					chatroomPrompt.show();
+				}
+
+				attachedObjects: [
+					SystemPrompt {
+						id: chatroomPrompt
+						title: "Enter Chatroom Address"
+						onFinished: {
+							if(chatroomPrompt.buttonSelection() == chatroomPrompt.confirmButton) {
+								app.JoinChatroom(chatroomPrompt.inputFieldTextEntry());
+							}
+						}
+					}
+				]
+			}
+		]
+
+		onCreationCompleted: {
+			dm.load();
+
+			app.NoAccounts.connect(function() {
+				navigationPane.push(loginDefinition.createObject());
+			});
+
+			app.Error.connect(function(msg) {
+				console.log("Backend error: " + msg);
+				errorDialog.body = msg;
+				errorDialog.show();
+			});
+
+			app.NickSet.connect(function(jid, nickname) {
+				// This hack is because Qt4 properties cannot be real objects
+				var tmp = nicknames;
+				tmp[JID.toBare(jid)] = nickname;
+				nicknames = tmp;
+				dm.query.emitDataChanged(2);
+			});
+
+			app.ChatMessage.connect(function(accountJid, otherSide, threadID, fromJid, stanzaID, subject, body) {
+				dm.query.emitDataChanged(2);
+			});
+
+
+			app.Ready();
 		}
 	}
 
+	onPopTransitionEnded: { page.destroy(); }
+
 	attachedObjects: [
+		ComponentDefinition {
+			id: conversationDefinition
+			source: "messages.qml"
+		},
+		ComponentDefinition {
+			id: loginDefinition
+			source: "login.qml"
+		},
 		SystemDialog {
 			id: errorDialog
 			cancelButton.label: undefined
 			title: "Error"
 			body: ""
-		},
-		ComponentDefinition {
-			id: conversationDefinition
-			source: "conversation.qml"
-		},
-		ComponentDefinition {
-			id: loginDefinition
-			source: "login.qml"
 		}
 	]
 }
