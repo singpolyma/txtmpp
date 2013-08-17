@@ -8,7 +8,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Data.Either.Unwrap (unlessLeft)
 import Control.Monad.Trans.State (StateT, runStateT, get, put)
-import Control.Error (hush, runEitherT, EitherT(..), tryAssert, left, note, fmapLT, eitherT, hoistEither, assertZ)
+import Control.Error (hush, runEitherT, EitherT(..), tryAssert, left, note, fmapLT, eitherT, hoistEither)
 import Data.Default (def)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
 import qualified Data.Text as T
@@ -319,7 +319,8 @@ app = do
 	db <- SQLite.open (FilePath.encodeString dbPath)
 
 	-- Create tables if the DB is new
-	unless dbExists (Accounts.createTable db >>= assertZ)
+	unless dbExists $ eitherT (fail . T.unpack . show) return $ do
+		Accounts.createTable db
 
 	lockingChan <- atomically newTChan
 	void $ forkIO (jidLockingServer lockingChan)

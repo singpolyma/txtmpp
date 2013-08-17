@@ -42,8 +42,8 @@ qs :: String -> Query
 qs = Query . T.pack
 {-# INLINE qs #-}
 
-createTable :: (MonadIO m) => Connection -> m Bool
-createTable conn = eitherT (\_ -> return False) (\_ -> return True) $ syncIO $
+createTable :: (MonadIO m) => Connection -> EitherT SomeException m ()
+createTable conn = syncIO $
 	execute conn (qs"CREATE TABLE accounts (\
 		\ localpart TEXT, \
 		\ domainpart TEXT NOT NULL, \
