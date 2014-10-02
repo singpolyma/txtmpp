@@ -20,11 +20,6 @@ data Account = Account {
 instance Show Account where
 	show (Account jid _) = "Account " ++ T.unpack (jidToText jid) ++ " REDACTED"
 
--- Orphan instance should live upstream
-instance MonadPlus RowParser where
-	mplus = (<|>)
-	mzero = Control.Applicative.empty
-
 instance FromRow Account where
 	fromRow = Account <$>
 		(justZ =<< jidFromTexts <$> field <*> field <*> field) <*>

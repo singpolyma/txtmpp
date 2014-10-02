@@ -22,11 +22,6 @@ data Message = Message {
 		body :: Text
 	} deriving (Show, Eq)
 
--- Orphan instance should live upstream
-instance MonadPlus RowParser where
-	mplus = (<|>)
-	mzero = Control.Applicative.empty
-
 jidFromRow :: RowParser Jid
 jidFromRow = justZ =<< jidFromTexts <$> field <*> field <*> field
 
