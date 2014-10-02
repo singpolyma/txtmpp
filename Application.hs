@@ -8,7 +8,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Data.Either.Unwrap (unlessLeft)
 import Control.Monad.Trans.State (StateT, runStateT, get, put)
-import Control.Error (hush, runEitherT, EitherT(..), tryAssert, left, note, fmapLT, eitherT, hoistEither)
+import Control.Error (hush, runEitherT, EitherT(..), left, note, fmapLT, eitherT, hoistEither)
 import Data.Default (def)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
 import qualified Data.Text as T
@@ -16,7 +16,6 @@ import qualified Data.Map as Map
 
 import System.Log.Logger
 import Network.Xmpp
-import Network.Xmpp.Internal (StanzaID(..))
 import Network.Xmpp.IM
 import Network.DNS.Resolver (defaultResolvConf, ResolvConf(..), FileOrNumericHost(..))
 
@@ -33,6 +32,8 @@ import qualified Messages
 
 import UIMODULE (emit)
 
+type StanzaID = Text
+
 authSession :: Jid -> Text -> IO (Either XmppFailure Session)
 authSession jid pass | isJust user' =
 	session (T.unpack domain) (Just (sasl, resource)) (def {sessionStreamConfiguration = def {resolvConf = defaultResolvConf {resolvInfo = RCHostName "8.8.8.8"}}})
@@ -47,7 +48,7 @@ authSession _ _ = return $ Left $ XmppAuthFailure AuthOtherFailure
 
 mkIM :: Maybe StanzaID -> Jid -> Jid -> MessageType -> Maybe (Text, Maybe Text) -> Maybe Text -> Text -> Message
 mkIM id from to typ thread subject body = withIM
-	(Message id (Just from) (Just to) Nothing typ [])
+	(Message id (Just from) (Just to) Nothing typ [] [])
 	InstantMessage {
 		imSubject = fmap (MessageSubject Nothing) $ maybeToList subject,
 		imBody = [MessageBody Nothing body],
@@ -61,7 +62,7 @@ presenceStatus p = case (presenceType p, getIMPresence p) of
 	(_, Just (IMP {showStatus = Just ss, status = s})) -> Just (SS ss, s)
 	_ -> Nothing
 
-acceptSubscription :: Jid -> Session -> IO Bool
+acceptSubscription :: Jid -> Session -> IO (Either XmppFailure ())
 acceptSubscription = sendPresence . presenceSubscribed
 
 presenceStream :: TChan RosterRequest -> TChan JidLockingRequest -> Jid -> Session -> IO ()
@@ -162,8 +163,7 @@ signals lockingChan connectionChan db (SendChat taccountJid tto thread body) =
 		mid <- liftIO $ newStanzaId s
 		to' <- liftIO $ syncCall lockingChan (JidGetLocked to)
 
-		sent <- liftIO $ sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
-		tryAssert (connErr ajid XmppNoStream) sent
+		fmapLT (connErr ajid) $ EitherT $ sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
 
 		eitherT (emit . Error . T.unpack . show) return $
 			Messages.insert db $ Messages.Message jid to to thread (show mid) Nothing body
@@ -179,7 +179,7 @@ signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
 newStanzaId :: Session -> IO StanzaID
 newStanzaId s = do
 	jid <- fmap (fromMaybe dummyjid) (getJid s)
-	fmap StanzaID (newThreadID jid)
+	newThreadID jid
 	where
 	Just dummyjid = jidFromTexts Nothing (T.pack "example.com") Nothing
 
@@ -192,9 +192,9 @@ rosterServer chan = next
 		where
 		msg (RosterSubbed jid reply) = do
 			atomically $ putTMVar reply $ case Map.lookup (toBare jid) roster of
-				Just (Item {approved = True}) -> True
-				Just (Item {subscription = From}) -> True
-				Just (Item {subscription = Both}) -> True
+				Just (Item {riApproved = True}) -> True
+				Just (Item {riSubscription = From}) -> True
+				Just (Item {riSubscription = Both}) -> True
 				_ -> False
 			next roster
 
@@ -250,14 +250,13 @@ maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ d
 
 	-- Get roster and emit to UI
 	roster <- liftIO $ getRoster session
-	liftIO $ mapM_ (\(_,Item {jid = j, name = n}) -> do
+	liftIO $ mapM_ (\(_,Item {riJid = j, riName = n}) -> do
 			emit $ PresenceSet (jidToText $ toBare jid') (jidToText j) (T.pack "Offline") T.empty
 			maybe (return ()) (emit . NickSet (jidToText j)) n
 		) $ Map.toList (items roster)
 
 	-- Now send presence, so that we get presence from others
-	sent <- liftIO $ sendPresence initialPresence session
-	tryAssert XmppNoStream sent
+	EitherT $ liftIO $ sendPresence initialPresence session
 
 	-- Roster server
 	rosterChan <- liftIO $ atomically newTChan

@@ -5,8 +5,7 @@ import Control.Monad
 import Control.Monad.IO.Class (liftIO)
 import Network.Xmpp
 import Control.Concurrent (ThreadId, forkIO, killThread)
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TChan (readTChan, TChan)
+import Control.Concurrent.STM (atomically, STM)
 import Data.IORef (IORef, atomicModifyIORef, readIORef, newIORef)
 import qualified Data.Text as T
 
@@ -59,21 +58,22 @@ startDisco ::
 	-> Session
 	-> IO (Maybe DiscoTicket)
 startDisco p is s =
-	listenIQChan Get discoNS s >>= either (const $ return Nothing) (\chan -> do
+	listenIQ Get discoNS s >>= either (const $ return Nothing) (\action -> do
 			fsio <- newIORef [Feature discoNS]
-			threadID <- forkIO (startDisco' p is fsio chan)
+			threadID <- forkIO (startDisco' p is fsio action)
 			return $ Just $ DiscoTicket (fsio, threadID)
 		)
 
-startDisco' :: (Jid -> IO Bool) -> [Identity] -> IORef [Feature] -> TChan IQRequestTicket -> IO ()
-startDisco' p' is' fsio chan = forever $ do
-	ticket <- liftIO $ atomically (readTChan chan)
+startDisco' :: (Jid -> IO Bool) -> [Identity] -> IORef [Feature] -> STM IQRequestTicket -> IO ()
+startDisco' p' is' fsio action = forever $ do
+	ticket <- liftIO $ atomically action
 	fs <- (fmap.fmap) (NodeElement . featureToElement) (readIORef fsio)
 	allow <- maybe (return True) p (iqRequestFrom $ iqRequestBody ticket)
 	-- This ignores duplicate send errors
-	void $ liftIO $ answerIQ ticket $
-		if allow then Right (Just $ query fs) else
-			Left $ StanzaError Cancel ServiceUnavailable Nothing Nothing
+	void $ liftIO $ answerIQ ticket (
+			if allow then Right (Just $ query fs) else
+				Left $ StanzaError Cancel ServiceUnavailable Nothing Nothing
+		) []
 	where
 	query fs = Element (nsname "query") [] (is ++ fs)
 	is = map (NodeElement . identityToElement) is'
