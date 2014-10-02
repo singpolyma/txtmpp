@@ -6,7 +6,6 @@ import BasicPrelude
 import Data.Foldable (for_)
 import Control.Concurrent
 import Control.Concurrent.STM
-import Data.Either.Unwrap (unlessLeft)
 import Control.Monad.Trans.State (StateT, runStateT, get, put)
 import Control.Error (hush, runEitherT, EitherT(..), left, note, fmapLT, eitherT, hoistEither)
 import Data.Default (def)
@@ -102,8 +101,6 @@ ims lockingChan db jid s = forever $ do
 	let Just otherJid = otherSide jid m
 	let Just from = messageFrom m
 	let Just id = fmap show (messageID m)
-
-	--unlessLeft (getNick $ messagePayload m) (emit . NickSet (jidToText from))
 
 	unless (messageType m == GroupChat) $
 		atomically $ writeTChan lockingChan $ JidMaybeLock from
