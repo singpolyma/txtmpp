@@ -82,5 +82,6 @@
 	<permission>post_notification</permission>
 	<permission system="true">run_when_backgrounded</permission>
 	<env var="LD_LIBRARY_PATH" value="app/native/lib:/usr/lib/qt4/lib"/>
+	<env var="SYSTEM_CERTIFICATE_PATH" value="/etc/openssl/certs/"/>
 	<env var="LANG" value="" /> <!-- Workaround for GHC RTS issue -->
 </qnx>
