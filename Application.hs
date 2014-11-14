@@ -172,6 +172,19 @@ signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
 		liftIO $ void $ acceptSubscription jid s
 	where
 	Just jid = jidFromText jidt
+signals _ connectionChan _ (JoinMUC taccountjid tmucjid) =
+	case (jidFromText taccountjid, jidFromText tmucjid) of
+		(Nothing, _) -> emit $ Error $ "Invalid account JID when joining MUC: " ++ T.unpack taccountjid
+		(_, Nothing) -> emit $ Error $ "Invalid MUC JID: " ++ T.unpack tmucjid
+		(Just accountjid, Just mucjid) -> do
+			let mucjid' = case jidToTexts mucjid of
+				(_, _, Just _) -> mucjid
+				(l, d, Nothing) -> let Just jid = jidFromTexts l d (localpart accountjid) in jid
+			maybeS <- syncCall connectionChan (GetSession accountjid)
+			case maybeS of
+				Left _ -> emit $ Error $ "Not connected"
+				Right s -> eitherT (emit . Error . T.unpack . show) return $ EitherT $
+					sendPresence (presenceOnline { presenceTo = Just mucjid' }) s
 
 newStanzaId :: Session -> IO StanzaID
 newStanzaId s = do
