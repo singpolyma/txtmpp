@@ -333,6 +333,9 @@ app = do
 	dbExists <- isFile dbPath
 	db <- SQLite.open (FilePath.encodeString dbPath)
 
+	-- WAL mode means we can read and write at the same time
+	SQLite.execute_ db $ SQLite.Query $ T.pack "PRAGMA journal_mode=WAL"
+
 	-- Create tables if the DB is new
 	unless dbExists $ eitherT (fail . T.unpack . show) return $ do
 		Accounts.createTable db
