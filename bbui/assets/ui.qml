@@ -85,6 +85,10 @@ NavigationPane {
 				navigationPane.push(loginDefinition.createObject());
 			});
 
+			app.Log.connect(function(msg) {
+				console.log("Backend log: " + msg);
+			});
+
 			app.Error.connect(function(msg) {
 				console.log("Backend error: " + msg);
 				errorDialog.body = msg;

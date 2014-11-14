@@ -13,6 +13,7 @@ data SignalToUI =
 	ChatMessage Text Text Text Text Text Text Text | -- AccountBareJid otherSide (user or MUC) threadID fromJid stanzaID subject body
 	MessageErr Text | -- stanzaID of message that errored
 	NoAccounts |
+	Log Text |
 	Error String
 	deriving (Show)
 
