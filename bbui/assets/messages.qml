@@ -80,7 +80,7 @@ Page {
 				// SqlDataQuery is the default implementation provided with the library
 				query: SqlDataQuery {
 					source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
-					query: "SELECT ROWID AS id, 1 AS revision_id, body, strftime('%s', datetime('now')) AS time, (from_localpart || '@' || from_domainpart) AS `from` FROM messages WHERE (otherSide_localpart || '@' || otherSide_domainpart) = :otherSide"
+					query: "SELECT ROWID AS id, 1 AS revision_id, body, strftime('%s', datetime(receivedAt)) AS time, (from_localpart || '@' || from_domainpart) AS `from` FROM messages WHERE (otherSide_localpart || '@' || otherSide_domainpart) = :otherSide"
 					countQuery: "SELECT COUNT(*) FROM messages WHERE (otherSide_localpart || '@' || otherSide_domainpart) = :otherSide"
 					keyColumn: "id"
 					revisionColumn: "revision_id"

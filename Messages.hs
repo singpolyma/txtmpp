@@ -3,6 +3,7 @@ module Messages where
 import Prelude (Show(..))
 import BasicPrelude
 import Control.Error
+import Data.Time (UTCTime)
 import qualified Control.Applicative (empty)
 
 import qualified Data.Text as T
@@ -19,7 +20,8 @@ data Message = Message {
 		threadId :: Text,
 		stanzaId :: Text,
 		subject :: Maybe Text,
-		body :: Text
+		body :: Text,
+		receivedAt :: UTCTime
 	} deriving (Show, Eq)
 
 jidFromRow :: RowParser Jid
@@ -33,6 +35,7 @@ instance FromRow Message where
 		field <*>
 		field <*>
 		field <*>
+		field <*>
 		field
 
 jidToRow :: Jid -> [SQLData]
@@ -43,7 +46,7 @@ jidToRow jid = [
 	]
 
 instance ToRow Message where
-	toRow (Message from to otherSide threadId stanzaId subject body) = concat [
+	toRow (Message from to otherSide threadId stanzaId subject body receivedAt) = concat [
 			jidToRow from,
 			jidToRow to,
 			jidToRow otherSide,
@@ -51,7 +54,8 @@ instance ToRow Message where
 				toField threadId,
 				toField stanzaId,
 				toField subject,
-				toField body
+				toField body,
+				toField receivedAt
 			]
 		]
 
@@ -75,6 +79,7 @@ createTable conn = syncIO $
 		\ stanzaId TEXT NOT NULL, \
 		\ subject TEXT, \
 		\ body TEXT NOT NULL, \
+		\ receivedAt TEXT NOT NULL, \
 		\ PRIMARY KEY (otherSide_localpart, otherSide_domainpart, otherSide_resourcepart, threadId, stanzaId) \
 		\ ON CONFLICT ABORT \
 		\ )") ()
@@ -82,4 +87,4 @@ createTable conn = syncIO $
 -- | Insert new message
 insert :: (MonadIO m) => Connection -> Message -> EitherT SomeException m ()
 insert conn = syncIO .
-	execute conn (qs"INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+	execute conn (qs"INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")

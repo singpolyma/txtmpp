@@ -10,6 +10,7 @@ import Control.Monad.Trans.State (StateT, runStateT, get, put)
 import Control.Error (hush, runEitherT, EitherT(..), left, note, fmapLT, eitherT, hoistEither)
 import Data.Default (def)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
+import Data.Time (getCurrentTime)
 import qualified Data.Text as T
 import qualified Data.Map as Map
 
@@ -112,9 +113,10 @@ ims lockingChan db jid s = forever $ do
 		(Nothing, Nothing) -> return () -- ignore completely empty message
 		_ -> do
 			thread <- maybe (newThreadID jid) return (fmap threadID $ imThread =<< im)
+			receivedAt <- getCurrentTime
 			let bodyS = fromMaybe T.empty body
 			eitherT (emit . Error . T.unpack . show) return $
-				Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) bodyS
+				Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) bodyS receivedAt
 			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (maybe T.empty show subject) bodyS
 
 otherSide :: Jid -> Message -> Maybe Jid
@@ -162,8 +164,10 @@ signals lockingChan connectionChan db (SendChat taccountJid tto thread body) =
 
 		fmapLT (connErr ajid) $ EitherT $ sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
 
+		receivedAt <- liftIO $ getCurrentTime
+
 		eitherT (emit . Error . T.unpack . show) return $
-			Messages.insert db $ Messages.Message jid to to thread (show mid) Nothing body
+			Messages.insert db $ Messages.Message jid to to thread (show mid) Nothing body receivedAt
 		liftIO $ emit $ ChatMessage (jidToText $ toBare ajid) (jidToText $ toBare to) thread (jidToText jid) (show mid) T.empty body
 signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
 	eitherT (emit . Error) return $ do
