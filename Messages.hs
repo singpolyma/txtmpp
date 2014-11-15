@@ -20,7 +20,7 @@ data Message = Message {
 		threadId :: Text,
 		stanzaId :: Text,
 		subject :: Maybe Text,
-		body :: Text,
+		body :: Maybe Text,
 		receivedAt :: UTCTime
 	} deriving (Show, Eq)
 
@@ -78,7 +78,7 @@ createTable conn = syncIO $
 		\ threadId TEXT NOT NULL, \
 		\ stanzaId TEXT NOT NULL, \
 		\ subject TEXT, \
-		\ body TEXT NOT NULL, \
+		\ body TEXT, \
 		\ receivedAt TEXT NOT NULL, \
 		\ PRIMARY KEY (otherSide_localpart, otherSide_domainpart, otherSide_resourcepart, threadId, stanzaId) \
 		\ ON CONFLICT ABORT \

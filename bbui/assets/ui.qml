@@ -44,8 +44,8 @@ NavigationPane {
 
 					query: SqlDataQuery {
 						source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
-						query: "SELECT MAX(ROWID) as id, 1 AS revision_id, body AS lastMessage, strftime('%s', datetime(receivedAt)) AS time, otherSide_localpart || '@' || otherSide_domainpart AS otherSide, to_localpart || '@' || to_domainpart AS jid FROM messages GROUP BY otherSide_localpart, otherSide_domainpart ORDER BY ROWID DESC"
-						countQuery: "SELECT COUNT(*) FROM (SELECT DISTINCT otherSide_localpart, otherSide_domainpart FROM messages)"
+						query: "SELECT ROWID as id, 1 AS revision_id, body AS lastMessage, MAX(strftime('%s', datetime(receivedAt))) AS time, otherSide_localpart || '@' || otherSide_domainpart AS otherSide, to_localpart || '@' || to_domainpart AS jid FROM messages WHERE body IS NOT NULL GROUP BY otherSide_localpart, otherSide_domainpart ORDER BY receivedAt DESC"
+						countQuery: "SELECT COUNT(*) FROM (SELECT DISTINCT otherSide_localpart, otherSide_domainpart FROM messages WHERE body IS NOT NULL)"
 						keyColumn: "id"
 						revisionColumn: "revision_id"
 						revisionQuery: "SELECT 1"

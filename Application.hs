@@ -117,15 +117,14 @@ ims lockingChan db jid s = forever $ eitherT (\e@(SomeException _) -> emit $ Err
 		(Nothing, Nothing) -> return () -- ignore completely empty message
 		_ -> do
 			thread <- maybe (newThreadID jid) return (fmap threadID $ imThread =<< im)
-			let bodyS = fromMaybe T.empty body
 
 			receivedAt <- case getDelay (messagePayload m) of
 				(Right (Just (Delay stamp _ _))) -> return stamp
 				_ -> getCurrentTime
 
 			eitherT (emit . Error . T.unpack . show) return $
-				Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) bodyS receivedAt
-			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (maybe T.empty show subject) bodyS
+				Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) body receivedAt
+			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 
 otherSide :: Jid -> Message -> Maybe Jid
 otherSide myjid (Message {messageFrom = from, messageTo = to})
@@ -175,7 +174,7 @@ signals lockingChan connectionChan db (SendChat taccountJid tto thread body) =
 		receivedAt <- liftIO $ getCurrentTime
 
 		eitherT (emit . Error . T.unpack . show) return $
-			Messages.insert db $ Messages.Message jid to to thread (show mid) Nothing body receivedAt
+			Messages.insert db $ Messages.Message jid to to thread (show mid) Nothing (Just body) receivedAt
 		liftIO $ emit $ ChatMessage (jidToText $ toBare ajid) (jidToText $ toBare to) thread (jidToText jid) (show mid) T.empty body
 signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
 	eitherT (emit . Error) return $ do
