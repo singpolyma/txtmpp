@@ -28,6 +28,7 @@ import Types
 import Nick
 import Ping
 import Disco
+import DelayedDelivery
 import qualified Accounts
 import qualified Messages
 
@@ -114,8 +115,12 @@ ims lockingChan db jid s = forever $ eitherT (\e@(SomeException _) -> emit $ Err
 		(Nothing, Nothing) -> return () -- ignore completely empty message
 		_ -> do
 			thread <- maybe (newThreadID jid) return (fmap threadID $ imThread =<< im)
-			receivedAt <- getCurrentTime
 			let bodyS = fromMaybe T.empty body
+
+			receivedAt <- case getDelay (messagePayload m) of
+				(Right (Just (Delay stamp _ _))) -> return stamp
+				_ -> getCurrentTime
+
 			eitherT (emit . Error . T.unpack . show) return $
 				Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) bodyS receivedAt
 			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (maybe T.empty show subject) bodyS
