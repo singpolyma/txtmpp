@@ -100,10 +100,12 @@ messageErrors s = forever $ do
 ims :: TChan JidLockingRequest -> SQLite.Connection -> Jid -> Session -> IO ()
 ims lockingChan db jid s = forever $ eitherT (\e@(SomeException _) -> emit $ Error $ T.unpack $ show e) return $ EitherT $ try $ do
 	m <- getMessage s
+	defaultId <- fmap ((T.pack "noStanzaId-" ++) . show) UUID.nextRandom
+
 	-- TODO: handle blank from/id ?  Inbound shouldn't have it, but shouldn't crash...
 	let Just otherJid = otherSide jid m
 	let Just from = messageFrom m
-	let Just id = fmap show (messageID m)
+	let id = fromMaybe defaultId $ messageID m
 
 	unless (messageType m == GroupChat) $
 		atomically $ writeTChan lockingChan $ JidMaybeLock from
