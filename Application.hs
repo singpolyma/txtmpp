@@ -127,9 +127,13 @@ ims lockingChan db jid s = forever $ eitherT (\e@(SomeException _) -> emit $ Err
 			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 
 otherSide :: Jid -> Message -> Maybe Jid
-otherSide myjid (Message {messageFrom = from, messageTo = to})
-	| from == Just myjid = fmap toBare to
-	| otherwise = fmap toBare from
+otherSide myjid m@(Message {messageFrom = from, messageTo = to})
+	| from == Just myjid = fmap over to
+	| otherwise = fmap over from
+	where
+	over jid = case messageType m of
+		GroupChat -> toBare jid
+		_ -> id jid
 
 newThreadID :: Jid -> IO Text
 newThreadID jid = do
