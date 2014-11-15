@@ -8,6 +8,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans.State (StateT, runStateT, get, put)
 import Control.Error (hush, runEitherT, EitherT(..), left, note, fmapLT, eitherT, hoistEither)
+import Control.Exception (SomeException(..))
 import Data.Default (def)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
 import Data.Time (getCurrentTime)
@@ -96,7 +97,7 @@ messageErrors s = forever $ do
 		Nothing -> return ()
 
 ims :: TChan JidLockingRequest -> SQLite.Connection -> Jid -> Session -> IO ()
-ims lockingChan db jid s = forever $ do
+ims lockingChan db jid s = forever $ eitherT (\e@(SomeException _) -> emit $ Error $ T.unpack $ show e) return $ EitherT $ try $ do
 	m <- getMessage s
 	-- TODO: handle blank from/id ?  Inbound shouldn't have it, but shouldn't crash...
 	let Just otherJid = otherSide jid m
