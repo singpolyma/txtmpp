@@ -34,15 +34,20 @@ Page {
 			id: messagesView
 			dataModel: dm
 
-			function getNickname(jid) {
-				return navigationPane.nicknames[JID.toBare(jid)] || JID.localpart(jid);
+			function getNickname(jid, otherSide) {
+				var nick = navigationPane.nicknames[JID.toBare(jid)];
+				if(!nick && jid == otherSide) {
+					return JID.localpart(jid);
+				} else {
+					return JID.resourcepart(jid);
+				}
 			}
 
 			listItemComponents: [
 				ListItemComponent {
 					StandardListItem {
 						title: ListItemData.body
-						description: ListItem.view.getNickname(ListItemData.from)
+						description: ListItem.view.getNickname(ListItemData.from, ListItemData.otherSide)
 						status: PrettyDate.format(new Date(ListItemData.time * 1000))
 					}
 				}
@@ -80,8 +85,8 @@ Page {
 				// SqlDataQuery is the default implementation provided with the library
 				query: SqlDataQuery {
 					source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
-					query: "SELECT ROWID AS id, 1 AS revision_id, body, strftime('%s', datetime(receivedAt)) AS time, (from_localpart || '@' || from_domainpart) AS `from` FROM messages WHERE body IS NOT NULL AND (otherSide_localpart || '@' || otherSide_domainpart) = :otherSide ORDER BY receivedAt"
-					countQuery: "SELECT COUNT(*) FROM messages WHERE body IS NOT NULL AND (otherSide_localpart || '@' || otherSide_domainpart) = :otherSide"
+					query: "SELECT ROWID AS id, 1 AS revision_id, body, strftime('%s', datetime(receivedAt)) AS time, (COALESCE(from_localpart, '') || '@' || from_domainpart || '/' || COALESCE(from_resourcepart, '')) AS `from`, (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) AS otherSide FROM messages WHERE body IS NOT NULL AND (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart) = :otherSide ORDER BY receivedAt"
+					countQuery: "SELECT COUNT(*) FROM messages WHERE body IS NOT NULL AND (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart) = :otherSide"
 					keyColumn: "id"
 					revisionColumn: "revision_id"
 					revisionQuery:  "SELECT 1"
