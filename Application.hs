@@ -118,13 +118,19 @@ ims lockingChan db jid s = forever $ eitherT (\e@(SomeException _) -> emit $ Err
 		_ -> do
 			thread <- maybe (newThreadID jid) return (fmap threadID $ imThread =<< im)
 
-			receivedAt <- case getDelay (messagePayload m) of
-				(Right (Just (Delay stamp _ _))) -> return stamp
-				_ -> getCurrentTime
+			case getDelay (messagePayload m) of
+				(Right (Just (Delay stamp _ _))) -> do
+					[[dupe]] <- SQLite.query db (SQLite.Query $ T.pack "SELECT COUNT(1) FROM messages WHERE datetime(receivedAt) > datetime(?, '-10 seconds') AND datetime(receivedAt) < datetime(?, '+10 seconds') AND body=?") (stamp, stamp, body)
 
-			eitherT (emit . Error . T.unpack . show) return $
-				Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) body receivedAt
-			emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
+					when (dupe < (1 :: Int)) $ do
+						eitherT (emit . Error . T.unpack . show) return $
+							Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) body stamp
+						emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
+				_ -> do
+					receivedAt <- getCurrentTime
+					eitherT (emit . Error . T.unpack . show) return $
+						Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) body receivedAt
+					emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 
 otherSide :: Jid -> Message -> Maybe Jid
 otherSide myjid m@(Message {messageFrom = from, messageTo = to})
