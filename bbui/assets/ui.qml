@@ -60,17 +60,66 @@ NavigationPane {
 				title: "Join Chatroom"
 				ActionBar.placement: ActionBarPlacement.OnBar
 				onTriggered: {
-					chatroomPrompt.inputField.inputMode = SystemUiInputMode.Email;
-					chatroomPrompt.show();
+					chatroomPrompt.open();
 				}
 
 				attachedObjects: [
-					SystemPrompt {
+					CustomDialog {
 						id: chatroomPrompt
-						title: "Enter Chatroom Address"
-						onFinished: {
-							if(chatroomPrompt.buttonSelection() == chatroomPrompt.confirmButton) {
-								app.JoinChatroom(chatroomPrompt.inputFieldTextEntry());
+						title: "Join Chatroom"
+
+						Picker {
+							id: chatroomPromptAccount
+							title: "Account"
+							description: chatroomPromptAccount.selectedValue.jid
+
+							pickerItemComponents: [
+								PickerItemComponent {
+									type: ""
+									content: Container { Label { text: pickerItemData.jid } }
+								}
+							]
+
+							dataModel: SimpleQueryDataModel {
+								id: chatroomPromptDM
+								query: SqlDataQuery {
+									source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
+									query: "SELECT ROWID as id, (COALESCE(localpart, '') || '@' || domainpart) AS jid FROM accounts"
+									keyColumn: "id"
+									onError: console.log("SQL query error: " + code + ", " + message)
+								}
+							}
+						}
+
+						TextField {
+							id: chatroomPromptJid
+							inputMode: TextFieldInputMode.EmailAddress
+							hintText: "Chatroom Address"
+						}
+
+						Container {
+							layout: StackLayout {
+								orientation: LayoutOrientation.LeftToRight
+							}
+
+							Button {
+								text: "Cancel"
+								onClicked: {
+									chatroomPromptJid.text = "";
+									chatroomPrompt.close();
+								}
+							}
+
+							Button {
+								text: "Join"
+								onClicked: {
+console.log("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+console.log("items: " + chatroomPromptDM.totalSize());
+console.log("data1: " + chatroomPromptDM.data([0]).jid);
+console.log('hai' + chatroomPromptAccount.selectedValue.jid);
+app.JoinMUC(chatroomPromptAccount.selectedValue.jid, chatroomPromptJid.text);
+chatroomPrompt.close();
+}
 							}
 						}
 					}
@@ -80,6 +129,7 @@ NavigationPane {
 
 		onCreationCompleted: {
 			dm.load();
+			chatroomPromptDM.load();
 
 			app.NoAccounts.connect(function() {
 				navigationPane.push(loginDefinition.createObject());
