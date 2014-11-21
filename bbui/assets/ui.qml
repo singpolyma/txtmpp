@@ -8,6 +8,7 @@ import "jid.js" as JID
 NavigationPane {
 	id: navigationPane
 	property variant nicknames: {}
+	property variant onPop
 
 	Page {
 		Container {
@@ -60,21 +61,9 @@ NavigationPane {
 				title: "Join Chatroom"
 				ActionBar.placement: ActionBarPlacement.OnBar
 				onTriggered: {
-					chatroomPrompt.inputField.inputMode = SystemUiInputMode.Email;
-					chatroomPrompt.show();
+					navigationPane.push(selectAccountDefinition.createObject());
+					navigationPane.onPop = 'joinChatroom';
 				}
-
-				attachedObjects: [
-					SystemPrompt {
-						id: chatroomPrompt
-						title: "Enter Chatroom Address"
-						onFinished: {
-							if(chatroomPrompt.buttonSelection() == chatroomPrompt.confirmButton) {
-								app.JoinChatroom(chatroomPrompt.inputFieldTextEntry());
-							}
-						}
-					}
-				]
 			}
 		]
 
@@ -112,7 +101,15 @@ NavigationPane {
 		}
 	}
 
-	onPopTransitionEnded: { page.destroy(); }
+	onPopTransitionEnded: {
+		if(navigationPane.onPop == 'joinChatroom' && page.selected && page.selected.jid) {
+			chatroomPrompt.account = page.selected.jid;
+			chatroomPrompt.show();
+		}
+
+		navigationPane.onPop = null;
+		page.destroy();
+	}
 
 	attachedObjects: [
 		ComponentDefinition {
@@ -122,6 +119,13 @@ NavigationPane {
 		ComponentDefinition {
 			id: loginDefinition
 			source: "login.qml"
+		},
+		ComponentDefinition {
+			id: selectAccountDefinition
+			source: "SelectAccount.qml"
+		},
+		ChatroomPrompt {
+			id: chatroomPrompt
 		},
 		SystemDialog {
 			id: errorDialog
