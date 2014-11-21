@@ -168,7 +168,7 @@ signals _ connectionChan db (RemoveAccount jidt) = do
 			jidOrError jidt (Accounts.remove db)
 		atomically $ writeTChan connectionChan RefreshAccounts
 signals _ connectionChan _ Ready =
-		atomically $ writeTChan connectionChan RefreshAccounts
+	atomically $ writeTChan connectionChan RefreshAccounts
 signals lockingChan connectionChan db (SendChat taccountJid tto thread body) =
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
