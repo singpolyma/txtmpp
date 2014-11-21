@@ -28,6 +28,8 @@
 		 May have multiple values for each language. See samples or xsd schema file. Optional. -->
 	<description>An SMS-replacement XMPP client</description>
 
+	<icon><image>assets/xmpp.png</image></icon>
+
 	<!--  Name of author which is used for signing. Must match the developer name of your development certificate. -->
 	<author>ArtBarn Labs</author>
 	<authorId>gYAAgE0CXSwBsFNkM0f0SEg-IVk</authorId>
