@@ -64,6 +64,14 @@ NavigationPane {
 					navigationPane.push(selectAccountDefinition.createObject());
 					navigationPane.onPop = 'joinChatroom';
 				}
+			},
+			ActionItem {
+				title: "Edit Accounts"
+				ActionBar.placement: ActionBarPlacement.OnBar
+				onTriggered: {
+					navigationPane.push(selectAccountDefinition.createObject());
+					navigationPane.onPop = 'editAccount';
+				}
 			}
 		]
 
@@ -71,7 +79,9 @@ NavigationPane {
 			dm.load();
 
 			app.NoAccounts.connect(function() {
-				navigationPane.push(loginDefinition.createObject());
+				var page = updateAccountDefinition.createObject();
+				page.title = "Login";
+				navigationPane.push(page);
 			});
 
 			app.Log.connect(function(msg) {
@@ -103,8 +113,15 @@ NavigationPane {
 
 	onPopTransitionEnded: {
 		if(navigationPane.onPop == 'joinChatroom' && page.selected && page.selected.jid) {
-			chatroomPrompt.account = page.selected.jid;
+			chatroomPrompt.account = JID.toBare(page.selected.jid);
 			chatroomPrompt.show();
+		}
+
+		if(navigationPane.onPop == 'editAccount' && page.selected && page.selected.jid) {
+			var update = updateAccountDefinition.createObject();
+			update.jid = page.selected.jid;
+			update.password = page.selected.password;
+			navigationPane.push(update);
 		}
 
 		navigationPane.onPop = null;
@@ -117,8 +134,8 @@ NavigationPane {
 			source: "messages.qml"
 		},
 		ComponentDefinition {
-			id: loginDefinition
-			source: "login.qml"
+			id: updateAccountDefinition
+			source: "UpdateAccount.qml"
 		},
 		ComponentDefinition {
 			id: selectAccountDefinition

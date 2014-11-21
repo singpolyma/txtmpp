@@ -1,24 +1,27 @@
 import bb.cascades 1.0
 
 Page {
+	property alias title: titleLabel.text
+	property alias jid: jidField.text
+	property alias password: passwordField.text
+
 	Container {
 		Label {
-			text: "Login"
-			textStyle {
-				base: SystemDefaults.TextStyles.TitleText
-			}
+			id: titleLabel
+			text: "Update Account"
+			textStyle.base: SystemDefaults.TextStyles.TitleText
 			verticalAlignment: VerticalAlignment.Center
 		}
 
 		TextField {
-			id: jid
+			id: jidField
 			hintText: "Jabber ID"
 			inputMode: TextFieldInputMode.EmailAddress
 			verticalAlignment: VerticalAlignment.Center
 		}
 
 		TextField {
-			id: password
+			id: passwordField
 			hintText: "Password"
 			inputMode: TextFieldInputMode.Password
 			verticalAlignment: VerticalAlignment.Center
@@ -26,7 +29,7 @@ Page {
 			input {
 				submitKey: SubmitKey.Connect
 				onSubmitted: {
-					app.UpdateAccount(jid.text, password.text);
+					app.UpdateAccount(jid, password);
 					navigationPane.pop();
 				}
 			}
@@ -37,7 +40,7 @@ Page {
 		backButton: ActionItem {
 			title: "Login"
 			onTriggered: {
-				app.UpdateAccount(jid.text, password.text);
+				app.UpdateAccount(jid, password);
 				navigationPane.pop();
 			}
 		}

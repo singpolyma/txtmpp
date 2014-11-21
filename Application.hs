@@ -8,7 +8,6 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans.State (StateT, runStateT, get, put)
 import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, fmapLT, eitherT, hoistEither)
-import Control.Exception (SomeException(..))
 import Data.Default (def)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
 import Data.Time (getCurrentTime)
@@ -98,7 +97,7 @@ messageErrors s = forever $ do
 		Nothing -> return ()
 
 ims :: TChan JidLockingRequest -> SQLite.Connection -> Jid -> Session -> IO ()
-ims lockingChan db jid s = forever $ eitherT (\e@(SomeException _) -> emit $ Error $ T.unpack $ show e) return $ EitherT $ try $ do
+ims lockingChan db jid s = forever $ do
 	m <- getMessage s
 	defaultId <- fmap ((T.pack "noStanzaId-" ++) . show) UUID.nextRandom
 
@@ -306,6 +305,8 @@ maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ d
 			return $ Connection session jid' (do
 					mapM_ killThread [imThread, errThread, pThread, rosterThread, pingThread]
 					stopDisco disco
+					void $ sendPresence presenceOffline session
+					endSession session
 				)
 		Nothing -> do
 			liftIO $ mapM_ killThread [rosterThread, imThread, errThread, pThread]
@@ -331,8 +332,8 @@ connectionManager chan lockingChan db = void $ runStateT
 
 		-- Add any new accounts, and reconnect any failed accounts
 		lift . put =<< foldM (\m a@(Accounts.Account jid _) -> do
-				a' <- maybeConnect lockingChan db a $ Map.lookup (toBare jid) oldAccounts
-				return $! Map.insert (toBare jid) a' m
+				a' <- maybeConnect lockingChan db a $ Map.lookup jid oldAccounts
+				return $! Map.insert jid a' m
 			) empty accounts
 
 		-- Kill dead threads

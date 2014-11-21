@@ -1,6 +1,8 @@
 import bb.cascades 1.2
 import bb.cascades.datamanager 1.2
 
+import "jid.js" as JID
+
 Page {
 	id: selectAccount
 	property variant selected
@@ -13,7 +15,7 @@ Page {
 			listItemComponents: [
 				ListItemComponent {
 					StandardListItem {
-						title: ListItemData.jid
+						title: JID.toBare(ListItemData.jid)
 					}
 				}
 			]
@@ -31,7 +33,7 @@ Page {
 
 				query: SqlDataQuery {
 					source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
-					query: "SELECT ROWID as id, 1 AS revision_id, COALESCE(localpart, '') || '@' || domainpart AS jid FROM accounts ORDER BY localpart, domainpart"
+					query: "SELECT ROWID as id, 1 AS revision_id, COALESCE(localpart, '') || '@' || domainpart || '/' || COALESCE(resourcepart, '') AS jid, password FROM accounts ORDER BY localpart, domainpart"
 					countQuery: "SELECT COUNT(*) FROM accounts"
 					keyColumn: "id"
 					revisionColumn: "revision_id"
