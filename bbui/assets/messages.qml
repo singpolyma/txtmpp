@@ -18,6 +18,16 @@ Page {
 		scrollBottomTimer.start();
 	}
 
+	function sendType() {
+		// It is polite to reply in kind
+		var count = dm.childCount([]);
+		if(count > 0) {
+			return dm.data([count-1]).type;
+		} else {
+			return "Chat";
+		}
+	}
+
 	Container {
 		Label {
 			id: subjectLabel
@@ -115,7 +125,7 @@ Page {
 			input {
 				submitKey: SubmitKey.Send
 				onSubmitted: {
-					app.SendChat(accountJid, dm.query.bindValues["otherSide"], "", chatMessage.text);
+					app.SendChat(accountJid, dm.query.bindValues["otherSide"], "", sendType(), chatMessage.text);
 					chatMessage.text = '';
 				}
 			}
@@ -132,7 +142,7 @@ Page {
 				// SqlDataQuery is the default implementation provided with the library
 				query: SqlDataQuery {
 					source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
-					query: "SELECT ROWID AS id, 1 AS revision_id, body, strftime('%s', datetime(receivedAt)) AS time, (COALESCE(from_localpart, '') || '@' || from_domainpart || '/' || COALESCE(from_resourcepart, '')) AS `from`, (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) AS otherSide FROM messages WHERE body IS NOT NULL AND (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart) = :otherSide ORDER BY receivedAt"
+					query: "SELECT ROWID AS id, 1 AS revision_id, body, `type`, strftime('%s', datetime(receivedAt)) AS time, (COALESCE(from_localpart, '') || '@' || from_domainpart || '/' || COALESCE(from_resourcepart, '')) AS `from`, (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) AS otherSide FROM messages WHERE body IS NOT NULL AND (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart) = :otherSide ORDER BY receivedAt"
 					countQuery: "SELECT COUNT(*) FROM messages WHERE body IS NOT NULL AND (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart) = :otherSide"
 					keyColumn: "id"
 					revisionColumn: "revision_id"

@@ -1,6 +1,6 @@
 module Messages where
 
-import Prelude (Show(..))
+import Prelude ()
 import BasicPrelude
 import Control.Error
 import Data.Time (UTCTime)
@@ -19,6 +19,7 @@ data Message = Message {
 		otherSide :: Jid, -- ^ Full jid of the other side (user or MUC)
 		threadId :: Text,
 		stanzaId :: Text,
+		typ :: MessageType,
 		subject :: Maybe Text,
 		body :: Maybe Text,
 		receivedAt :: UTCTime
@@ -27,6 +28,9 @@ data Message = Message {
 jidFromRow :: RowParser Jid
 jidFromRow = justZ =<< jidFromTexts <$> field <*> field <*> field
 
+readFromRow :: (Read a) => RowParser a
+readFromRow = readZ =<< field
+
 instance FromRow Message where
 	fromRow = Message <$>
 		jidFromRow <*>
@@ -34,6 +38,7 @@ instance FromRow Message where
 		jidFromRow <*>
 		field <*>
 		field <*>
+		readFromRow <*>
 		field <*>
 		field <*>
 		field
@@ -46,13 +51,14 @@ jidToRow jid = [
 	]
 
 instance ToRow Message where
-	toRow (Message from to otherSide threadId stanzaId subject body receivedAt) = concat [
+	toRow (Message from to otherSide threadId stanzaId typ subject body receivedAt) = concat [
 			jidToRow from,
 			jidToRow to,
 			jidToRow otherSide,
 			[
 				toField threadId,
 				toField stanzaId,
+				toField $ show typ,
 				toField subject,
 				toField body,
 				toField receivedAt
@@ -77,6 +83,7 @@ createTable conn = syncIO $
 		\ " ++ jidSchema "otherSide" ++ ", \
 		\ threadId TEXT NOT NULL, \
 		\ stanzaId TEXT NOT NULL, \
+		\ `type` TEXT NOT NULL, \
 		\ subject TEXT, \
 		\ body TEXT, \
 		\ receivedAt TEXT NOT NULL, \
@@ -87,4 +94,4 @@ createTable conn = syncIO $
 -- | Insert new message
 insert :: (MonadIO m) => Connection -> Message -> EitherT SomeException m ()
 insert conn = syncIO .
-	execute conn (qs"INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+	execute conn (qs"INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")

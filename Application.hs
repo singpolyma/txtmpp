@@ -7,7 +7,7 @@ import Data.Foldable (for_)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans.State (StateT, runStateT, get, put)
-import Control.Error (hush, runEitherT, EitherT(..), left, note, fmapLT, eitherT, hoistEither)
+import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, fmapLT, eitherT, hoistEither)
 import Control.Exception (SomeException(..))
 import Data.Default (def)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
@@ -124,12 +124,12 @@ ims lockingChan db jid s = forever $ eitherT (\e@(SomeException _) -> emit $ Err
 
 					when (dupe < (1 :: Int)) $ do
 						eitherT (emit . Error . T.unpack . show) return $
-							Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) body stamp
+							Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) (fmap show subject) body stamp
 						emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 				_ -> do
 					receivedAt <- getCurrentTime
 					eitherT (emit . Error . T.unpack . show) return $
-						Messages.insert db $ Messages.Message from jid otherJid thread id (fmap show subject) body receivedAt
+						Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) (fmap show subject) body receivedAt
 					emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 
 otherSide :: Jid -> Message -> Maybe Jid
@@ -169,22 +169,23 @@ signals _ connectionChan db (RemoveAccount jidt) = do
 		atomically $ writeTChan connectionChan RefreshAccounts
 signals _ connectionChan _ Ready =
 	atomically $ writeTChan connectionChan RefreshAccounts
-signals lockingChan connectionChan db (SendChat taccountJid tto thread body) =
+signals lockingChan connectionChan db (SendChat taccountJid tto thread typ body) =
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
 		to <- hoistEither (jidParse tto)
 		s <- fmapLT (connErr ajid) $ EitherT $ syncCall connectionChan (GetSession ajid)
 		jid <- fmapLT (connErr ajid) $ EitherT $ syncCall connectionChan (GetFullJid ajid)
+		typ' <- readZ $ T.unpack typ
 
 		mid <- liftIO $ newStanzaId s
 		to' <- liftIO $ syncCall lockingChan (JidGetLocked to)
 
-		fmapLT (connErr ajid) $ EitherT $ sendMessage (mkIM (Just mid) jid to' Chat (Just (thread, Nothing)) Nothing body) s
+		fmapLT (connErr ajid) $ EitherT $ sendMessage (mkIM (Just mid) jid to' typ' (Just (thread, Nothing)) Nothing body) s
 
 		receivedAt <- liftIO $ getCurrentTime
 
 		eitherT (emit . Error . T.unpack . show) return $
-			Messages.insert db $ Messages.Message jid to to thread (show mid) Nothing (Just body) receivedAt
+			Messages.insert db $ Messages.Message jid to to thread (show mid) Chat Nothing (Just body) receivedAt
 		liftIO $ emit $ ChatMessage (jidToText $ toBare ajid) (jidToText $ toBare to) thread (jidToText jid) (show mid) T.empty body
 signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
 	eitherT (emit . Error) return $ do

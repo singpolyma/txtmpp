@@ -21,7 +21,7 @@ data SignalFromUI =
 	Ready |
 	UpdateAccount Text Text | -- Jid Password
 	RemoveAccount Text | -- Jid
-	SendChat Text Text Text Text | -- AccountBareJid otherSide (user or MUC) threadID body
+	SendChat Text Text Text Text Text | -- AccountBareJid otherSide (user or MUC) threadID type body
 	AcceptSubscription Text Text | -- AccountBareJid otherSide
 	JoinMUC Text Text -- AccountBareJid MucJid(with optional /nick)
 	deriving (Read, Show)
