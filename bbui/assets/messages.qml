@@ -36,6 +36,7 @@ Page {
 
 			function getNickname(jid, otherSide) {
 				var nick = navigationPane.nicknames[JID.toBare(jid)];
+				if(nick) return nick;
 				if(!nick && jid == otherSide) {
 					return JID.localpart(jid);
 				} else {
@@ -45,10 +46,56 @@ Page {
 
 			listItemComponents: [
 				ListItemComponent {
-					StandardListItem {
-						title: ListItemData.body
-						description: ListItem.view.getNickname(ListItemData.from, ListItemData.otherSide)
-						status: PrettyDate.format(new Date(ListItemData.time * 1000))
+					Container {
+						id: messageListItem
+
+						layout: StackLayout {
+							orientation: LayoutOrientation.LeftToRight
+						}
+
+						Container {
+							topPadding: 20
+
+							layoutProperties: StackLayoutProperties {
+								spaceQuota: 1
+							}
+
+							Divider { }
+
+							Label {
+								multiline: true
+								horizontalAlignment: HorizontalAlignment.Fill
+
+								text: ListItemData.body
+							}
+
+							Container {
+								layout: DockLayout {}
+								horizontalAlignment: HorizontalAlignment.Fill
+
+								Label {
+									horizontalAlignment: HorizontalAlignment.Left
+									verticalAlignment: VerticalAlignment.Fill
+									textStyle {
+										base: SystemDefaults.TextStyles.SmallText
+										color: Color.LightGray
+									}
+
+									text: messageListItem.ListItem.view.getNickname(ListItemData.from, ListItemData.otherSide)
+								}
+
+								Label {
+									horizontalAlignment: HorizontalAlignment.Right
+									verticalAlignment: VerticalAlignment.Fill
+									textStyle {
+										base: SystemDefaults.TextStyles.SmallText
+										color: Color.LightGray
+									}
+
+									text: PrettyDate.format(new Date(ListItemData.time * 1000))
+								}
+							}
+						}
 					}
 				}
 			]
