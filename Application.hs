@@ -326,6 +326,8 @@ connectionManager chan lockingChan db = void $ runStateT
 	(forever $ liftIO (atomically $ readTChan chan) >>= msg) empty
 	where
 	msg RefreshAccounts = eitherT (emit . Error . T.unpack . show) return $ do
+		emit AccountsChanged -- Probably, that's why we're here
+
 		oldAccounts <- lift get
 		accounts <- Accounts.get db
 
@@ -345,6 +347,8 @@ connectionManager chan lockingChan db = void $ runStateT
 				Just (Right (Connection _ _ cleanup)) -> liftIO $ runUnexceptionalIO cleanup
 				_ -> return ()
 			) (Map.keys oldAccounts \\ map Accounts.jid accounts)
+
+		emit AccountsChanged -- In case we made changes
 	msg (GetSession jid r) =
 		lookupConnection jid >>= liftIO . atomically . putTMVar r . fmap connectionSession
 	msg (GetFullJid jid r) =

@@ -1,4 +1,5 @@
 import bb.cascades 1.2
+import bb.system 1.2
 import bb.cascades.datamanager 1.2
 
 import "jid.js" as JID
@@ -17,10 +18,44 @@ Page {
 			id: accountView
 			dataModel: dm
 
+			function removeAccount(account) {
+				app.RemoveAccount(JID.toBare(account.jid));
+			}
+
 			listItemComponents: [
 				ListItemComponent {
 					StandardListItem {
+						id: accountViewItem
 						title: JID.toBare(ListItemData.jid)
+
+						contextActions: [
+							ActionSet {
+								DeleteActionItem {
+									title: "Remove account"
+
+									onTriggered: {
+										confirmDelete.show();
+									}
+
+									attachedObjects: [
+										SystemDialog {
+											id: confirmDelete
+											title: "Confirm Removal"
+											body: "Are you sure you want to remove this account?"
+											confirmButton.label: "Yes"
+											cancelButton.label: "No"
+
+											onFinished: {
+												if(result == SystemUiResult.ConfirmButtonSelection) {
+													var account = accountViewItem.ListItem.view.dataModel.data(accountViewItem.ListItem.indexPath);
+													accountViewItem.ListItem.view.removeAccount(account);
+												}
+											}
+										}
+									]
+								}
+							}
+						]
 					}
 				}
 			]
@@ -47,6 +82,18 @@ Page {
 			}
 		]
 	}
+
+	actions: [
+		ActionItem {
+			title: "Add Account"
+			ActionBar.placement: ActionBarPlacement.OnBar
+
+			onTriggered: {
+				accountUpdatePane.title = "Add Account";
+				navigationPane.push(accountUpdatePane);
+			}
+		}
+	]
 
 	onCreationCompleted: {
 		dm.load();

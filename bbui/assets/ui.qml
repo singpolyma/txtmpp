@@ -83,6 +83,11 @@ NavigationPane {
 				navigationPane.push(accountUpdatePane);
 			});
 
+			app.AccountsChanged.connect(function() {
+				editAccountSelector.refresh();
+				chatroomAccountSelector.refresh();
+			});
+
 			app.Log.connect(function(msg) {
 				console.log("Backend log: " + msg);
 			});
@@ -145,10 +150,9 @@ NavigationPane {
 			onFinished: {
 				accountUpdatePane.title = "Update Account";
 				accountUpdatePane.save = "Save";
+				accountUpdatePane.jid = "";
+				accountUpdatePane.password = "";
 				navigationPane.pop();
-
-				editAccountSelector.refresh();
-				chatroomAccountSelector.refresh();
 			}
 		},
 		SystemDialog {
