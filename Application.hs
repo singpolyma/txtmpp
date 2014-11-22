@@ -37,9 +37,12 @@ import UIMODULE (emit)
 
 type StanzaID = Text
 
-authSession :: Jid -> Text -> IO (Either XmppFailure Session)
-authSession jid pass | isJust user' =
-	session (T.unpack domain) (Just (sasl, resource)) (def {sessionStreamConfiguration = def {resolvConf = defaultResolvConf {resolvInfo = RCHostName "8.8.8.8"}}})
+authSession :: Jid -> Text -> (Session -> XmppFailure -> IO ()) -> IO (Either XmppFailure Session)
+authSession jid pass onClosed | isJust user' =
+	session (T.unpack domain) (Just (sasl, resource)) (def {
+		onConnectionClosed = onClosed,
+		sessionStreamConfiguration = def {resolvConf = defaultResolvConf {resolvInfo = RCHostName "8.8.8.8"}}
+	})
 	where
 	resource = resourcepart jid
 	domain = domainpart jid
@@ -47,7 +50,7 @@ authSession jid pass | isJust user' =
 	user' = localpart jid
 	sasl Secured = [scramSha1 user Nothing pass, plain user Nothing pass]
 	sasl _ = [scramSha1 user Nothing pass]
-authSession _ _ = return $ Left $ XmppAuthFailure AuthOtherFailure
+authSession _ _ _ = return $ Left $ XmppAuthFailure AuthOtherFailure
 
 mkIM :: Maybe StanzaID -> Jid -> Jid -> MessageType -> Maybe (Text, Maybe Text) -> Maybe Text -> Text -> Message
 mkIM id from to typ thread subject body = withIM
@@ -276,10 +279,9 @@ data Connection = Connection {
 		connectionCleanup :: UnexceptionalIO ()
 	}
 
-maybeConnect :: (MonadIO m) => TChan JidLockingRequest -> SQLite.Connection -> Accounts.Account -> Maybe Connection -> m (Either XmppFailure Connection)
-maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
-	session <- EitherT $ authSession jid pass
-	jid' <- fmap (fromMaybe jid) (liftIO $ getJid session)
+afterConnect :: Connection -> IO (Either XmppFailure (Jid, Roster))
+afterConnect (Connection session jid _) = do
+	jid' <- fmap (fromMaybe jid) (getJid session)
 
 	-- Get roster and emit to UI
 	roster <- liftIO $ getRoster session
@@ -289,7 +291,22 @@ maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ d
 		) $ Map.toList (items roster)
 
 	-- Now send presence, so that we get presence from others
-	EitherT $ liftIO $ sendPresence initialPresence session
+	(fmap . fmap) (const (jid', roster)) $ sendPresence initialPresence session
+	where
+	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just 12)) presenceOnline
+
+doReconnect :: Connection -> IO ()
+doReconnect c@(Connection session _ _) = do
+	void $ reconnect' session
+	result <- afterConnect c
+	case result of
+		Left _ -> doReconnect c
+		Right _ -> return ()
+
+maybeConnect :: (MonadIO m) => TChan JidLockingRequest -> SQLite.Connection -> Accounts.Account -> Maybe Connection -> m (Either XmppFailure Connection)
+maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
+	session <- EitherT $ authSession jid pass (\s _ -> doReconnect $ Connection s jid (return ()))
+	(jid', roster) <- EitherT $ afterConnect (Connection session jid (return ()))
 
 	-- Roster server
 	rosterChan <- liftIO $ atomically newTChan
@@ -313,8 +330,6 @@ maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ d
 		Nothing -> do
 			liftIO $ mapM_ killThread [rosterThread, imThread, errThread, pThread]
 			left XmppNoStream
-	where
-	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just 12)) presenceOnline
 maybeConnect _ _ _ (Just x) = return (Right x)
 
 lookupConnection :: (Functor m, Monad m) => Jid -> StateT (Map Jid (Either XmppFailure Connection)) m (Either XmppFailure Connection)
