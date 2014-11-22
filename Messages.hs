@@ -24,6 +24,8 @@ data Message = Message {
 		receivedAt :: UTCTime
 	} deriving (Show, Eq)
 
+newtype Conversation = Conversation Jid deriving (Show, Eq)
+
 jidFromRow :: RowParser Jid
 jidFromRow = justZ =<< jidFromTexts <$> field <*> field <*> field
 
@@ -41,6 +43,9 @@ instance FromRow Message where
 		field <*>
 		field <*>
 		field
+
+instance FromRow Conversation where
+	fromRow = Conversation <$> jidFromRow
 
 jidToRow :: Jid -> [SQLData]
 jidToRow jid = [
@@ -94,3 +99,8 @@ createTable conn = syncIO $
 insert :: (MonadIO m) => Connection -> Message -> EitherT SomeException m ()
 insert conn = syncIO .
 	execute conn (qs"INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+
+getConversations :: (MonadIO m) => Connection -> Jid -> MessageType -> m [Conversation]
+getConversations conn from typ = liftIO $ query conn
+	(qs"SELECT DISTINCT otherside_localpart, otherSide_domainpart, otherSide_resourcepart FROM messages WHERE ((from_localpart=? AND from_domainpart=?) OR (to_localpart=? AND to_domainpart=?)) AND type=? ORDER BY receivedAt DESC")
+	[localpart from, Just $ domainpart from, localpart from, Just $ domainpart from, Just $ show typ]

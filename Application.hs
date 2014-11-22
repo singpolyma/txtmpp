@@ -208,8 +208,11 @@ signals _ connectionChan _ (JoinMUC taccountjid tmucjid) =
 			maybeS <- syncCall connectionChan (GetSession accountjid)
 			case maybeS of
 				Left _ -> emit $ Error $ "Not connected"
-				Right s -> eitherT (emit . Error . T.unpack . show) return $ EitherT $
-					sendPresence (presenceOnline { presenceTo = Just mucjid' }) s
+				Right s -> joinMUC s mucjid'
+
+joinMUC :: Session -> Jid -> IO ()
+joinMUC s mucjid = eitherT (emit . Error . T.unpack . show) return $ EitherT $
+	sendPresence (presenceOnline { presenceTo = Just mucjid }) s
 
 newStanzaId :: Session -> IO StanzaID
 newStanzaId s = do
@@ -278,8 +281,8 @@ data Connection = Connection {
 		connectionCleanup :: UnexceptionalIO ()
 	}
 
-afterConnect :: Connection -> IO (Either XmppFailure (Jid, Roster))
-afterConnect (Connection session jid _) = do
+afterConnect :: SQLite.Connection -> Connection -> IO (Either XmppFailure (Jid, Roster))
+afterConnect db (Connection session jid _) = do
 	jid' <- fmap (fromMaybe jid) (getJid session)
 
 	-- Get roster and emit to UI
@@ -290,22 +293,30 @@ afterConnect (Connection session jid _) = do
 		) $ Map.toList (items roster)
 
 	-- Now send presence, so that we get presence from others
-	(fmap . fmap) (const (jid', roster)) $ sendPresence initialPresence session
+	result <- (fmap . fmap) (const (jid', roster)) $ sendPresence initialPresence session
+
+	-- Re-join MUCs
+	mapM_ (\(Messages.Conversation jid) ->
+			let Just mjid = jidFromTexts (localpart jid) (domainpart jid) (localpart jid') in
+			joinMUC session mjid
+		) =<< Messages.getConversations db jid' GroupChat
+
+	return result
 	where
 	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just 12)) presenceOnline
 
-doReconnect :: Connection -> IO ()
-doReconnect c@(Connection session _ _) = do
+doReconnect :: SQLite.Connection -> Connection -> IO ()
+doReconnect db c@(Connection session _ _) = do
 	void $ reconnect' session
-	result <- afterConnect c
+	result <- afterConnect db c
 	case result of
-		Left _ -> doReconnect c
+		Left _ -> doReconnect db c
 		Right _ -> return ()
 
 maybeConnect :: (MonadIO m) => TChan JidLockingRequest -> SQLite.Connection -> Accounts.Account -> Maybe Connection -> m (Either XmppFailure Connection)
 maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
-	session <- EitherT $ authSession jid pass (\s _ -> doReconnect $ Connection s jid (return ()))
-	(jid', roster) <- EitherT $ afterConnect (Connection session jid (return ()))
+	session <- EitherT $ authSession jid pass (\s _ -> doReconnect db $ Connection s jid (return ()))
+	(jid', roster) <- EitherT $ afterConnect db (Connection session jid (return ()))
 
 	-- Roster server
 	rosterChan <- liftIO $ atomically newTChan
