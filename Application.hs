@@ -8,7 +8,6 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans.State (StateT, runStateT, get, put)
 import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, rightZ, fmapLT, eitherT, hoistEither)
-import Data.Default (def)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
 import Data.Time (getCurrentTime)
 import UnexceptionalIO (UnexceptionalIO, runUnexceptionalIO)

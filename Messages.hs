@@ -4,7 +4,6 @@ import Prelude ()
 import BasicPrelude
 import Control.Error
 import Data.Time (UTCTime)
-import qualified Control.Applicative (empty)
 
 import qualified Data.Text as T
 
