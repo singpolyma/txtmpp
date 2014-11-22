@@ -7,10 +7,12 @@ import Data.Foldable (for_)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans.State (StateT, runStateT, get, put)
-import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, fmapLT, eitherT, hoistEither)
+import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, rightZ, fmapLT, eitherT, hoistEither)
 import Data.Default (def)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
 import Data.Time (getCurrentTime)
+import UnexceptionalIO (UnexceptionalIO, runUnexceptionalIO)
+import qualified UnexceptionalIO
 import qualified Data.Text as T
 import qualified Data.Map as Map
 
@@ -271,10 +273,10 @@ data ConnectionRequest =
 data Connection = Connection {
 		connectionSession :: Session,
 		connectionJid :: Jid,
-		connectionCleanup :: IO ()
+		connectionCleanup :: UnexceptionalIO ()
 	}
 
-maybeConnect :: (MonadIO m) => TChan JidLockingRequest -> SQLite.Connection -> Accounts.Account -> Maybe (Either XmppFailure Connection) -> m (Either XmppFailure Connection)
+maybeConnect :: (MonadIO m) => TChan JidLockingRequest -> SQLite.Connection -> Accounts.Account -> Maybe Connection -> m (Either XmppFailure Connection)
 maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
 	session <- EitherT $ authSession jid pass
 	jid' <- fmap (fromMaybe jid) (liftIO $ getJid session)
@@ -302,7 +304,7 @@ maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ d
 	case disco of
 		Just disco -> do
 			pingThread <- liftIO $ forkIO (void $ respondToPing (getRosterSubbed rosterChan) disco session)
-			return $ Connection session jid' (do
+			return $ Connection session jid' (void $ UnexceptionalIO.fromIO $ do -- Ignore exceptions
 					mapM_ killThread [imThread, errThread, pThread, rosterThread, pingThread]
 					stopDisco disco
 					void $ sendPresence presenceOffline session
@@ -313,8 +315,7 @@ maybeConnect lc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ d
 			left XmppNoStream
 	where
 	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just 12)) presenceOnline
-maybeConnect lc db a (Just (Left _)) = maybeConnect lc db a Nothing
-maybeConnect _ _ _ (Just x) = return x
+maybeConnect _ _ _ (Just x) = return (Right x)
 
 lookupConnection :: (Functor m, Monad m) => Jid -> StateT (Map Jid (Either XmppFailure Connection)) m (Either XmppFailure Connection)
 lookupConnection jid =
@@ -332,13 +333,16 @@ connectionManager chan lockingChan db = void $ runStateT
 
 		-- Add any new accounts, and reconnect any failed accounts
 		lift . put =<< foldM (\m a@(Accounts.Account jid _) -> do
-				a' <- maybeConnect lockingChan db a $ Map.lookup jid oldAccounts
-				return $! Map.insert jid a' m
+				a' <- maybeConnect lockingChan db a $ do
+					oa <- rightZ =<< Map.lookup (toBare jid) oldAccounts
+					guard (connectionJid oa == jid) -- do not reuse if resource has changed
+					return $! oa
+				return $! Map.insert (toBare jid) a' m
 			) empty accounts
 
 		-- Kill dead threads
 		mapM_ (\k -> case Map.lookup k oldAccounts of
-				Just (Right (Connection _ _ cleanup)) -> liftIO cleanup
+				Just (Right (Connection _ _ cleanup)) -> liftIO $ runUnexceptionalIO cleanup
 				_ -> return ()
 			) (Map.keys oldAccounts \\ map Accounts.jid accounts)
 	msg (GetSession jid r) =
