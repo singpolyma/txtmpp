@@ -1,9 +1,14 @@
 import bb.cascades 1.0
 
 Page {
+	id: pane
+
 	property alias title: titleLabel.text
+	property alias save: saveButton.title
 	property alias jid: jidField.text
 	property alias password: passwordField.text
+
+	signal finished()
 
 	Container {
 		Label {
@@ -30,7 +35,7 @@ Page {
 				submitKey: SubmitKey.Connect
 				onSubmitted: {
 					app.UpdateAccount(jid, password);
-					navigationPane.pop();
+					finished();
 				}
 			}
 		}
@@ -38,10 +43,12 @@ Page {
 
 	paneProperties: NavigationPaneProperties {
 		backButton: ActionItem {
-			title: "Login"
+			id: saveButton
+
+			title: "Save"
 			onTriggered: {
 				app.UpdateAccount(jid, password);
-				navigationPane.pop();
+				finished();
 			}
 		}
 	}

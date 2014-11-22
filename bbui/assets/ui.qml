@@ -8,7 +8,6 @@ import "jid.js" as JID
 NavigationPane {
 	id: navigationPane
 	property variant nicknames: {}
-	property variant onPop
 
 	Page {
 		Container {
@@ -31,10 +30,10 @@ NavigationPane {
 				]
 
 				onTriggered: {
-					var conversation = dataModel.data(indexPath);
-					var page = conversationDefinition.createObject();
-					page.setup(conversation.jid, conversation.otherSide);
-					navigationPane.push(page);
+					var selected = dataModel.data(indexPath);
+					var conversation = conversationDefinition.createObject();
+					conversation.setup(selected.jid, selected.otherSide);
+					navigationPane.push(conversation);
 				}
 			}
 
@@ -60,17 +59,17 @@ NavigationPane {
 			ActionItem {
 				title: "Join Chatroom"
 				ActionBar.placement: ActionBarPlacement.OnBar
+
 				onTriggered: {
-					navigationPane.push(selectAccountDefinition.createObject());
-					navigationPane.onPop = 'joinChatroom';
+					navigationPane.push(chatroomAccountSelector);
 				}
 			},
 			ActionItem {
 				title: "Edit Accounts"
 				ActionBar.placement: ActionBarPlacement.OnBar
+
 				onTriggered: {
-					navigationPane.push(selectAccountDefinition.createObject());
-					navigationPane.onPop = 'editAccount';
+					navigationPane.push(editAccountSelector);
 				}
 			}
 		]
@@ -79,9 +78,9 @@ NavigationPane {
 			dm.load();
 
 			app.NoAccounts.connect(function() {
-				var page = updateAccountDefinition.createObject();
-				page.title = "Login";
-				navigationPane.push(page);
+				accountUpdatePane.title = "Login"
+				accountUpdatePane.save = "Login"
+				navigationPane.push(accountUpdatePane);
 			});
 
 			app.Log.connect(function(msg) {
@@ -106,26 +105,12 @@ NavigationPane {
 				dm.query.emitDataChanged(2);
 			});
 
-
 			app.Ready();
 		}
 	}
 
 	onPopTransitionEnded: {
-		if(navigationPane.onPop == 'joinChatroom' && page.selected && page.selected.jid) {
-			chatroomPrompt.account = JID.toBare(page.selected.jid);
-			chatroomPrompt.show();
-		}
-
-		if(navigationPane.onPop == 'editAccount' && page.selected && page.selected.jid) {
-			var update = updateAccountDefinition.createObject();
-			update.jid = page.selected.jid;
-			update.password = page.selected.password;
-			navigationPane.push(update);
-		}
-
-		navigationPane.onPop = null;
-		page.destroy();
+		if(page.destroyOnPop) page.destroy();
 	}
 
 	attachedObjects: [
@@ -133,16 +118,38 @@ NavigationPane {
 			id: conversationDefinition
 			source: "messages.qml"
 		},
-		ComponentDefinition {
-			id: updateAccountDefinition
-			source: "UpdateAccount.qml"
-		},
-		ComponentDefinition {
-			id: selectAccountDefinition
-			source: "SelectAccount.qml"
+		AccountSelector {
+			id: chatroomAccountSelector
+
+			onSelected: {
+				chatroomPrompt.account = JID.toBare(account.jid);
+				chatroomPrompt.show();
+				navigationPane.pop();
+			}
 		},
 		ChatroomPrompt {
 			id: chatroomPrompt
+		},
+		AccountSelector {
+			id: editAccountSelector
+
+			onSelected: {
+				accountUpdatePane.jid = account.jid;
+				accountUpdatePane.password = account.password;
+				navigationPane.push(accountUpdatePane);
+			}
+		},
+		AccountUpdatePane {
+			id: accountUpdatePane
+
+			onFinished: {
+				accountUpdatePane.title = "Update Account";
+				accountUpdatePane.save = "Save";
+				navigationPane.pop();
+
+				editAccountSelector.refresh();
+				chatroomAccountSelector.refresh();
+			}
 		},
 		SystemDialog {
 			id: errorDialog

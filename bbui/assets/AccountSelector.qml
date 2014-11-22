@@ -5,7 +5,12 @@ import "jid.js" as JID
 
 Page {
 	id: selectAccount
-	property variant selected
+
+	signal selected(variant account)
+
+	function refresh() {
+		dm.query.emitDataChanged(2);
+	}
 
 	Container {
 		ListView {
@@ -21,8 +26,7 @@ Page {
 			]
 
 			onTriggered: {
-				selectAccount.selected = dataModel.data(indexPath);
-				navigationPane.pop();
+				selectAccount.selected(dataModel.data(indexPath));
 			}
 		}
 

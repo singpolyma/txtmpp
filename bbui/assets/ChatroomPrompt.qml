@@ -9,7 +9,7 @@ SystemPrompt {
 
 	onFinished: {
 		if(result == SystemUiResult.ConfirmButtonSelection) {
-			app.JoinMUC(account, chatroomPrompt.inputFieldTextEntry());
+			app.JoinMUC(account, inputFieldTextEntry());
 		}
 	}
 }

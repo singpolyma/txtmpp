@@ -8,6 +8,7 @@ import "jid.js" as JID
 Page {
 	id: messagesPage
 	property variant accountJid
+	property variant destroyOnPop: true
 
 	function setup(accountJid, otherSide) {
 		messagesPage.accountJid = accountJid;
