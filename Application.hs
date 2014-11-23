@@ -7,7 +7,7 @@ import Data.Foldable (for_)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans.State (StateT, runStateT, get, put)
-import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, rightZ, fmapLT, eitherT, hoistEither)
+import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, rightZ, fmapLT, eitherT, hoistEither, throwT)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
 import Data.Time (getCurrentTime)
 import UnexceptionalIO (UnexceptionalIO, runUnexceptionalIO)
@@ -50,15 +50,6 @@ authSession jid pass onClosed | isJust user' =
 	sasl Secured = [scramSha1 user Nothing pass, plain user Nothing pass]
 	sasl _ = [scramSha1 user Nothing pass]
 authSession _ _ _ = return $ Left $ XmppAuthFailure AuthOtherFailure
-
-mkIM :: Maybe StanzaID -> Jid -> Jid -> MessageType -> Maybe (Text, Maybe Text) -> Maybe Text -> Text -> Message
-mkIM id from to typ thread subject body = withIM
-	(Message id (Just from) (Just to) Nothing typ [] [])
-	InstantMessage {
-		imSubject = fmap (MessageSubject Nothing) $ maybeToList subject,
-		imBody = [MessageBody Nothing body],
-		imThread = fmap (uncurry MessageThread) thread
-	}
 
 presenceStatus :: Presence -> Maybe (Status, Maybe Text)
 presenceStatus p = case (presenceType p, getIMPresence p) of
@@ -127,12 +118,12 @@ ims lockingChan db jid s = forever $ do
 
 					when (dupe < (1 :: Int)) $ do
 						eitherT (emit . Error . T.unpack . show) return $
-							Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) (fmap show subject) body stamp
+							Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body stamp
 						emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 				_ -> do
 					receivedAt <- getCurrentTime
 					eitherT (emit . Error . T.unpack . show) return $
-						Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) (fmap show subject) body receivedAt
+						Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body receivedAt
 					emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 
 otherSide :: Jid -> Message -> Maybe Jid
@@ -176,19 +167,23 @@ signals lockingChan connectionChan db (SendChat taccountJid tto thread typ body)
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
 		to <- hoistEither (jidParse tto)
-		s <- fmapLT (connErr ajid) $ EitherT $ syncCall connectionChan (GetSession ajid)
-		jid <- fmapLT (connErr ajid) $ EitherT $ syncCall connectionChan (GetFullJid ajid)
 		typ' <- readZ $ T.unpack typ
+		s <- liftIO $ syncCall connectionChan (GetSession ajid)
+		jid' <- liftIO $ syncCall connectionChan (GetFullJid ajid)
+		jid <- case jid' of
+			Left XmppNoStream -> return ajid
+			Left e            -> throwT $ T.unpack $ show e
+			Right jid         -> return jid
 
-		mid <- liftIO $ newStanzaId s
+		-- Stanza id
+		mid <- liftIO $ newThreadID jid
 		to' <- liftIO $ syncCall lockingChan (JidGetLocked to)
-
-		fmapLT (connErr ajid) $ EitherT $ sendMessage (mkIM (Just mid) jid to' typ' (Just (thread, Nothing)) Nothing body) s
 
 		receivedAt <- liftIO $ getCurrentTime
 
-		eitherT (emit . Error . T.unpack . show) return $
-			Messages.insert db $ Messages.Message jid to to thread (show mid) Chat Nothing (Just body) receivedAt
+		fmapLT (T.unpack . show) $
+			Messages.send db s $ Messages.Message jid to' to' thread mid typ' Messages.Pending Nothing (Just body) receivedAt
+
 		liftIO $ emit $ ChatMessage (jidToText $ toBare ajid) (jidToText $ toBare to) thread (jidToText jid) (show mid) T.empty body
 signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
 	eitherT (emit . Error) return $ do
@@ -213,13 +208,6 @@ signals _ connectionChan _ (JoinMUC taccountjid tmucjid) =
 joinMUC :: Session -> Jid -> IO ()
 joinMUC s mucjid = eitherT (emit . Error . T.unpack . show) return $ EitherT $
 	sendPresence (presenceOnline { presenceTo = Just mucjid }) s
-
-newStanzaId :: Session -> IO StanzaID
-newStanzaId s = do
-	jid <- fmap (fromMaybe dummyjid) (getJid s)
-	newThreadID jid
-	where
-	Just dummyjid = jidFromTexts Nothing (T.pack "example.com") Nothing
 
 data RosterRequest = RosterSubbed Jid (TMVar Bool)
 
