@@ -1,10 +1,10 @@
-module DelayedDelivery (getDelay, Delay(..)) where
+module DelayedDelivery (getDelay, delayXml, Delay(..)) where
 
 import Data.Time (UTCTime)
 import Control.Error (note)
 import Data.Time.ISO8601 (formatISO8601, parseISO8601)
 import Data.XML.Types (Element, Name(..))
-import Data.XML.Pickle (UnpickleError, PU, xpUnliftElems, xpOption, xpWrap, xpPair, xpId, xpElem, xpPartial, xpContent, xpAttribute, xpAttribute', unpickle)
+import Data.XML.Pickle (UnpickleError, PU, xpUnliftElems, xpOption, xpWrap, xpPair, xpId, xpElem, xpPartial, xpContent, xpAttribute, xpAttribute', unpickle, pickle)
 import qualified Data.Text as T
 
 import Network.Xmpp
@@ -18,6 +18,9 @@ data Delay = Delay {
 -- | Extract XEP-0203 delayed delivery from list of elements
 getDelay :: [Element] -> Either UnpickleError (Maybe Delay)
 getDelay = unpickle (xpOption xpDelay)
+
+delayXml :: Delay -> [Element]
+delayXml = pickle xpDelay
 
 xpDelay :: PU [Element] Delay
 xpDelay =
