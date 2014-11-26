@@ -120,7 +120,7 @@ toXMPP (Message from to _ threadId stanzaId typ _ subject body _) = withIM
 	}
 
 resend :: (MonadIO m) => Connection -> (Either XmppFailure Session) -> Message -> EitherT SomeException m ()
-resend db session msg@(Message { from = from, receivedAt = receivedAt }) = do
+resend db session msg@(Message { from = from, otherSide = otherSide, receivedAt = receivedAt }) = do
 	result <- case session of
 		Left  e -> return $! Left e
 		Right s -> syncIO $ sendMessage xml s
@@ -129,7 +129,7 @@ resend db session msg@(Message { from = from, receivedAt = receivedAt }) = do
 		Left e            -> throwT $ toException e
 		Right ()          -> syncIO $ execute db
 			(qs"UPDATE messages SET status=? WHERE otherSide_localpart=? AND otherSide_domainpart=? AND otherSide_resourcepart=? AND threadId=? AND stanzaId=?")
-			(show Sent, localpart from, domainpart from, resourcepart from, threadId msg, stanzaId msg)
+			(show Sent, localpart otherSide, domainpart otherSide, resourcepart otherSide, threadId msg, stanzaId msg)
 	where
 	xml = originalXML {
 			Pontarius.messagePayload = Pontarius.messagePayload originalXML ++
