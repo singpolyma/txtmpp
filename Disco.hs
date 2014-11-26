@@ -53,7 +53,7 @@ stopDisco :: DiscoTicket -> IO ()
 stopDisco (DiscoTicket (_,tid)) = killThread tid
 
 startDisco ::
-	(Jid -> IO Bool) -- ^ Should be 'True' if ok to respond to Pings from this Jid
+	(Jid -> IO Bool) -- ^ Should be 'True' if ok to respond to discovery from this Jid
 	-> [Identity]
 	-> Session
 	-> IO (Maybe DiscoTicket)
