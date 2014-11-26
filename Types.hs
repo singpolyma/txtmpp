@@ -20,6 +20,7 @@ data SignalToUI =
 
 data SignalFromUI =
 	Ready |
+	NetworkChanged |
 	UpdateAccount Text Text | -- Jid Password
 	RemoveAccount Text | -- Jid
 	SendChat Text Text Text Text Text | -- AccountBareJid otherSide (user or MUC) threadID type body

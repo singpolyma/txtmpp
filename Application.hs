@@ -7,9 +7,9 @@ import Data.Foldable (for_)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans.State (StateT, runStateT, get, put, modify)
-import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, rightZ, fmapLT, eitherT, hoistEither, throwT, syncIO)
+import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, rightZ, fmapLT, eitherT, hoistEither, throwT)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
-import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
+import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime, UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import UnexceptionalIO (UnexceptionalIO, runUnexceptionalIO)
 import qualified UnexceptionalIO
@@ -164,6 +164,8 @@ signals _ connectionChan db (RemoveAccount jidt) = do
 		atomically $ writeTChan connectionChan RefreshAccounts
 signals _ connectionChan _ Ready =
 	atomically $ writeTChan connectionChan RefreshAccounts
+signals _ connectionChan _ NetworkChanged =
+	atomically $ writeTChan connectionChan ReconnectAll
 signals lockingChan connectionChan db (SendChat taccountJid tto thread typ body) =
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
@@ -264,6 +266,8 @@ data ConnectionRequest =
 	GetSession Jid (TMVar (Either XmppFailure Session)) |
 	GetFullJid Jid (TMVar (Either XmppFailure Jid)) |
 	Reconnect Jid |
+	DoneClosing Jid |
+	ReconnectAll |
 	PingDone Jid NominalDiffTime |
 	MaybePing
 
@@ -345,9 +349,16 @@ maybeConnect lc cc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT 
 			left XmppNoStream
 maybeConnect _ _ _ _ (Just x) = return (Right x)
 
-lookupConnection :: (Functor m, Monad m) => Jid -> StateT (Map Jid (Either XmppFailure Connection, a)) m (Either XmppFailure Connection)
+lookupConnection :: (Functor m, Monad m) => Jid -> StateT (Map Jid ConnectionManagerStateItem) m (Either XmppFailure Connection)
 lookupConnection jid =
-	fmap (fromMaybe (Left XmppNoStream) . fmap fst . Map.lookup (toBare jid)) get
+	fmap (fromMaybe (Left XmppNoStream) . fmap cmConnection . Map.lookup (toBare jid)) get
+
+data ConnectionManagerStateItem = CM {
+		cmConnection :: Either XmppFailure Connection,
+		cmLastPing   :: UTCTime,
+		cmLastPingR  :: NominalDiffTime,
+		cmClosing    :: Bool
+	}
 
 connectionManager :: TChan ConnectionRequest -> TChan JidLockingRequest -> SQLite.Connection -> IO ()
 connectionManager chan lockingChan db = void $ runStateT
@@ -364,15 +375,16 @@ connectionManager chan lockingChan db = void $ runStateT
 		-- Add any new accounts, and reconnect any failed accounts
 		lift . put =<< foldM (\m a@(Accounts.Account jid _) -> do
 				a' <- maybeConnect lockingChan chan db a $ do
-					oa <- rightZ =<< fmap fst (Map.lookup (toBare jid) oldAccounts)
+					oa <- rightZ =<< fmap cmConnection (Map.lookup (toBare jid) oldAccounts)
 					guard (connectionJid oa == jid) -- do not reuse if resource has changed
 					return $! oa
-				return $! Map.insert (toBare jid) (a', (posixSecondsToUTCTime 0,0)) m
+				return $! Map.insert (toBare jid) (CM a' (posixSecondsToUTCTime 0) 0 False) m
 			) empty accounts
 
 		-- Kill dead threads
 		mapM_ (\k -> case Map.lookup k oldAccounts of
-				Just (Right (Connection _ _ cleanup), _) -> liftIO $ runUnexceptionalIO cleanup
+				Just (CM { cmConnection = Right (Connection _ _ cleanup) }) ->
+					liftIO $ runUnexceptionalIO cleanup
 				_ -> return ()
 			) (Map.keys oldAccounts \\ map Accounts.jid accounts)
 
@@ -381,16 +393,22 @@ connectionManager chan lockingChan db = void $ runStateT
 		lookupConnection jid >>= liftIO . atomically . putTMVar r . fmap connectionSession
 	msg (GetFullJid jid r) =
 		lookupConnection jid >>= liftIO . atomically . putTMVar r . fmap connectionJid
+	msg (DoneClosing jid) =
+		modify (Map.adjust (\st -> st { cmClosing = False }) jid)
 	msg (Reconnect jid) = do
-		connection <- lookupConnection jid
-		case connection of
-			Right (Connection s _ _) -> eitherT (emit . Error . T.unpack . show) return $ syncIO $ closeConnection s
-			Left _ -> return ()
+		st <- Map.lookup (toBare jid) <$> get
+		case st of
+			Just (CM { cmConnection = (Right (Connection s _ _)), cmClosing = False }) -> do
+				liftIO $ void $ forkIO $ (closeConnection s >> atomically (writeTChan chan $ DoneClosing jid))
+				modify (Map.adjust (\st -> st { cmClosing = True }) jid)
+			_ -> return ()
+	msg ReconnectAll =
+		get >>= mapM_ (liftIO . atomically . writeTChan chan . Reconnect) . Map.keys
 	msg (PingDone jid r) =
-		modify (Map.adjust (\(c, (lastPing, _)) -> (c, (lastPing, r))) jid)
+		modify (Map.adjust (\st -> st { cmLastPingR = r }) jid)
 	msg MaybePing = do
 		time <- liftIO $ getCurrentTime
-		put =<< (get >>= Map.traverseWithKey (\jid st@(c, (lastPing, lastPingR)) ->
+		put =<< (get >>= Map.traverseWithKey (\jid st@(CM c lastPing lastPingR closing) ->
 				let Just serverJid = jidFromTexts Nothing (domainpart jid) Nothing in
 				case c of
 					Right (Connection s _ _) | diffUTCTime time lastPing > 30 -> do
@@ -399,7 +417,7 @@ connectionManager chan lockingChan db = void $ runStateT
 							case pingResult of
 								Left  _ -> atomically $ writeTChan chan (Reconnect jid)
 								Right r -> atomically $ writeTChan chan (PingDone jid r)
-						return (c, (time, lastPingR))
+						return $! CM c time lastPingR closing
 					_ -> return st
 			))
 
