@@ -308,7 +308,11 @@ afterConnect db (Connection session jid _) = do
 
 doReconnect :: SQLite.Connection -> Connection -> IO ()
 doReconnect db c@(Connection session _ _) = do
-	void $ reconnect' session
+	result <- reconnectNow session
+	case result of
+		Just _ ->  void $ reconnect' session
+		Nothing -> return ()
+
 	result <- afterConnect db c
 	case result of
 		Left _ -> doReconnect db c
