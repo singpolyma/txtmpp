@@ -7,6 +7,7 @@ INCLUDEPATH += ../src
 SOURCES += ../src/*.cpp
 HEADERS += ../src/*.h
 LIBS += -lbbsystem -lbbplatform -lbbcascadesdatamanager
+QT += network
 DEFINES += USE_NOTIFICATIONS USE_INVOCATIONS
 
 lupdate_inclusion {

@@ -1,6 +1,7 @@
 import bb.cascades 1.2
 import bb.system 1.2
 import bb.cascades.datamanager 1.2
+import haskades.qtnetwork 1.0
 
 import "prettyDate.js" as PrettyDate
 import "jid.js" as JID
@@ -76,6 +77,18 @@ NavigationPane {
 
 		onCreationCompleted: {
 			dm.load();
+
+			var ignoreFirstFourNetworkChanges = 0;
+			networkConfiguration.configurationChanged.connect(function(conf) {
+				ignoreFirstFourNetworkChanges++;
+				if(ignoreFirstFourNetworkChanges > 4) {
+					app.NetworkChanged();
+				}
+			});
+
+			networkConfiguration.onlineStateChanged.connect(function(state) {
+				if(!state) app.NetworkChanged();
+			});
 
 			app.NoAccounts.connect(function() {
 				accountUpdatePane.title = "Login"
@@ -154,6 +167,9 @@ NavigationPane {
 				accountUpdatePane.password = "";
 				navigationPane.pop();
 			}
+		},
+		QNetworkConfigurationManager {
+			id: networkConfiguration
 		},
 		SystemDialog {
 			id: errorDialog
