@@ -128,7 +128,7 @@ resend db session msg@(Message { from = from, receivedAt = receivedAt }) = do
 		Left XmppNoStream -> return () -- No status change
 		Left e            -> throwT $ toException e
 		Right ()          -> syncIO $ execute db
-			(qs"UPDATE messages SET status=? WHERE otherSide_localpart=? AND otherSide_domainpart=? AND otherSide_resourcpart=? AND threadId=? AND stanzaId=?")
+			(qs"UPDATE messages SET status=? WHERE otherSide_localpart=? AND otherSide_domainpart=? AND otherSide_resourcepart=? AND threadId=? AND stanzaId=?")
 			(show Sent, localpart from, domainpart from, resourcepart from, threadId msg, stanzaId msg)
 	where
 	xml = originalXML {
@@ -146,6 +146,11 @@ send db session msg = do
 		Left XmppNoStream -> Messages.insert db (msg { status = Pending })
 		Left e            -> throwT $ toException e
 		Right ()          -> Messages.insert db (msg { status = Sent })
+
+getMessages :: (MonadIO m) => Connection -> Jid -> Status -> m [Message]
+getMessages conn account status = liftIO $ query conn
+	(qs"SELECT * FROM messages WHERE ((from_localpart=? AND from_domainpart=?) OR (to_localpart=? AND to_domainpart=?)) AND status=?")
+	(localpart account, domainpart account, localpart account, domainpart account, show status)
 
 getConversations :: (MonadIO m) => Connection -> Jid -> MessageType -> m [Conversation]
 getConversations conn from typ = liftIO $ query conn

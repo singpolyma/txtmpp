@@ -293,6 +293,11 @@ afterConnect db (Connection session jid _) = do
 			joinMUC session mjid
 		) =<< Messages.getConversations db jid' GroupChat
 
+	-- Re-try pending messages
+	eitherT (emit . Error . T.unpack . show) return $ mapM_ (
+			Messages.resend db (Right session)
+		) =<< Messages.getMessages db jid' Messages.Pending
+
 	return result
 	where
 	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just 12)) presenceOnline
