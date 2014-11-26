@@ -10,9 +10,11 @@ import qualified Data.Text as T
 import Database.SQLite.Simple
 import Database.SQLite.Simple.FromRow (RowParser)
 import Database.SQLite.Simple.ToField (toField)
-import Network.Xmpp hiding (Message)
+import Network.Xmpp hiding (Message, from)
 import Network.Xmpp.IM hiding (status)
 import qualified Network.Xmpp as Pontarius
+
+import DelayedDelivery hiding (from)
 
 data Message = Message {
 		from :: Jid, -- ^ Full jid this message came from
@@ -116,6 +118,24 @@ toXMPP (Message from to _ threadId stanzaId typ _ subject body _) = withIM
 		imBody    = MessageBody Nothing <$> maybeToList body,
 		imThread  = Just $ MessageThread threadId Nothing
 	}
+
+resend :: (MonadIO m) => Connection -> (Either XmppFailure Session) -> Message -> EitherT SomeException m ()
+resend db session msg@(Message { from = from, receivedAt = receivedAt }) = do
+	result <- case session of
+		Left  e -> return $! Left e
+		Right s -> syncIO $ sendMessage xml s
+	case result of
+		Left XmppNoStream -> return () -- No status change
+		Left e            -> throwT $ toException e
+		Right ()          -> syncIO $ execute db
+			(qs"UPDATE messages SET status=? WHERE otherSide_localpart=? AND otherSide_domainpart=? AND otherSide_resourcpart=? AND threadId=? AND stanzaId=?")
+			(show Sent, localpart from, domainpart from, resourcepart from, threadId msg, stanzaId msg)
+	where
+	xml = originalXML {
+			Pontarius.messagePayload = Pontarius.messagePayload originalXML ++
+				delayXml (Delay receivedAt (Just from) (Just $ T.pack "Connection issue"))
+		}
+	originalXML = toXMPP msg
 
 send :: (MonadIO m) => Connection -> (Either XmppFailure Session) -> Message -> EitherT SomeException m ()
 send db session msg = do
