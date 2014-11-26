@@ -150,4 +150,4 @@ send db session msg = do
 getConversations :: (MonadIO m) => Connection -> Jid -> MessageType -> m [Conversation]
 getConversations conn from typ = liftIO $ query conn
 	(qs"SELECT DISTINCT otherside_localpart, otherSide_domainpart, otherSide_resourcepart FROM messages WHERE ((from_localpart=? AND from_domainpart=?) OR (to_localpart=? AND to_domainpart=?)) AND type=? ORDER BY receivedAt DESC")
-	[localpart from, Just $ domainpart from, localpart from, Just $ domainpart from, Just $ show typ]
+	(localpart from, domainpart from, localpart from, domainpart from, show typ)
