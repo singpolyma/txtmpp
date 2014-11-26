@@ -41,7 +41,7 @@ authSession jid pass onClosed plugins | isJust user' =
 		onConnectionClosed = onClosed,
 		plugins = plugins,
 		keepAlive = Nothing,
-		sessionStreamConfiguration = def {resolvConf = defaultResolvConf {resolvInfo = RCHostName "8.8.8.8"}}
+		sessionStreamConfiguration = def {resolvConf = defaultResolvConf {resolvInfo = RCFilePath "app/native/assets/resolv.conf"}}
 	})
 	where
 	resource = resourcepart jid
