@@ -15,6 +15,7 @@ import Network.Xmpp.IM hiding (status)
 import qualified Network.Xmpp as Pontarius
 
 import DelayedDelivery hiding (from)
+import JidSql
 
 data Message = Message {
 		from :: Jid, -- ^ Full jid this message came from
@@ -31,11 +32,6 @@ data Message = Message {
 
 data Status = Received | Sent | Pending deriving (Show, Read, Eq)
 
-newtype Conversation = Conversation Jid deriving (Show, Eq)
-
-jidFromRow :: RowParser Jid
-jidFromRow = justZ =<< jidFromTexts <$> field <*> field <*> field
-
 readFromRow :: (Read a) => RowParser a
 readFromRow = readZ =<< field
 
@@ -51,16 +47,6 @@ instance FromRow Message where
 		field <*>
 		field <*>
 		field
-
-instance FromRow Conversation where
-	fromRow = Conversation <$> jidFromRow
-
-jidToRow :: Jid -> [SQLData]
-jidToRow jid = [
-		toField $ localpart jid,
-		toField $ domainpart jid,
-		toField $ resourcepart jid
-	]
 
 instance ToRow Message where
 	toRow (Message from to otherSide threadId stanzaId typ status subject body receivedAt) = concat [
@@ -81,12 +67,6 @@ instance ToRow Message where
 qs :: String -> Query
 qs = Query . T.pack
 {-# INLINE qs #-}
-
-jidSchema :: String -> String
-jidSchema columnName =
-	       columnName ++ "_localpart TEXT, \
-	\ " ++ columnName ++ "_domainpart TEXT NOT NULL, \
-	\ " ++ columnName ++ "_resourcepart TEXT"
 
 createTable :: (MonadIO m) => Connection -> EitherT SomeException m ()
 createTable conn = syncIO $
@@ -151,8 +131,3 @@ getMessages :: (MonadIO m) => Connection -> Jid -> Status -> m [Message]
 getMessages conn account status = liftIO $ query conn
 	(qs"SELECT * FROM messages WHERE ((from_localpart=? AND from_domainpart=?) OR (to_localpart=? AND to_domainpart=?)) AND status=?")
 	(localpart account, domainpart account, localpart account, domainpart account, show status)
-
-getConversations :: (MonadIO m) => Connection -> Jid -> MessageType -> m [Conversation]
-getConversations conn from typ = liftIO $ query conn
-	(qs"SELECT DISTINCT otherside_localpart, otherSide_domainpart, otherSide_resourcepart FROM messages WHERE ((from_localpart=? AND from_domainpart=?) OR (to_localpart=? AND to_domainpart=?)) AND type=? ORDER BY receivedAt DESC")
-	(localpart from, domainpart from, localpart from, domainpart from, show typ)

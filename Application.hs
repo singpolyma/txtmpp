@@ -7,7 +7,7 @@ import Data.Foldable (for_)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans.State (StateT, runStateT, get, put, modify)
-import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, rightZ, fmapLT, eitherT, hoistEither, throwT)
+import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, rightZ, fmapLT, eitherT, hoistEither, throwT, MaybeT(..), maybeT)
 import Filesystem (getAppConfigDirectory, createTree, isFile)
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime, UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
@@ -32,6 +32,7 @@ import Disco
 import DelayedDelivery
 import qualified Accounts
 import qualified Messages
+import qualified Conversations
 
 import UIMODULE (emit)
 
@@ -107,7 +108,6 @@ ims lockingChan db jid s = forever $ do
 	defaultId <- fmap ((T.pack "noStanzaId-" ++) . show) UUID.nextRandom
 
 	-- TODO: handle blank from/id ?  Inbound shouldn't have it, but shouldn't crash...
-	let Just otherJid = otherSide jid m
 	let Just from = messageFrom m
 	let id = fromMaybe defaultId $ messageID m
 
@@ -117,9 +117,12 @@ ims lockingChan db jid s = forever $ do
 	let im = getIM m
 	let subject = fmap subjectContent $ (listToMaybe . imSubject) =<< im
 	let body = fmap bodyContent $ (listToMaybe . imBody) =<< im
+
 	case (subject, body) of
 		(Nothing, Nothing) -> return () -- ignore completely empty message
 		_ -> do
+			Just conversation <- mapInboundConversation db jid m
+			let otherJid = Conversations.otherSide conversation
 			thread <- maybe (newThreadID jid) return (fmap threadID $ imThread =<< im)
 
 			case getDelay (messagePayload m) of
@@ -136,12 +139,45 @@ ims lockingChan db jid s = forever $ do
 						Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body receivedAt
 					emit $ ChatMessage (jidToText $ toBare jid) (jidForUi otherJid) thread (jidForUi from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 
--- TODO: do not toBare messages from a MUC alias, and maybe other cases?
--- otherSide represents what should be a seperate conversation view
-otherSide :: Jid -> Message -> Maybe Jid
-otherSide myjid (Message {messageFrom = from, messageTo = to})
-	| from == Just myjid = fmap toBare to
-	| otherwise = fmap toBare from
+mapInboundConversation :: SQLite.Connection -> Jid -> Message -> IO (Maybe Conversations.Conversation)
+mapInboundConversation db ajid m@(Message {messageFrom = Just from, messageType = GroupChat}) = do
+	conversation <- maybeT
+		(Conversations.insert db False defaultConversation >> return defaultConversation)
+		(return) $
+			MaybeT $ Conversations.getConversation db True ajid (toBare from)
+	case subject of
+		Nothing -> return (Just conversation)
+		Just s  -> let c = conversation { Conversations.nickname = s } in
+			Conversations.update db c >> return (Just c)
+	where
+	subject = fmap subjectContent $ (listToMaybe . imSubject) =<< im
+	im = getIM m
+	defaultConversation = Conversations.def ajid from GroupChat
+mapInboundConversation db ajid m@(Message {messageFrom = Just from, messageType = messageType}) = do
+	conversation <- maybeT (do
+			mc <- Conversations.getConversation db False ajid (toBare from)
+			case mc of
+				Just (Conversations.Conversation { Conversations.typ = Conversations.GroupChat }) ->
+					let
+						c = defaultConversation {
+							Conversations.otherSide = from,
+							Conversations.nickname = fromMaybe empty $ resourcepart from
+						}
+					in Conversations.insert db False c >> return c
+				Just c -> return c
+				Nothing -> do
+					Conversations.insert db False defaultConversation
+					return defaultConversation
+		) (return) $
+			MaybeT $ Conversations.getConversation db False ajid from
+	case nick of
+		Nothing -> return (Just conversation)
+		Just s  -> let c = conversation { Conversations.nickname = s } in
+			Conversations.update db c >> return (Just c)
+	where
+	nick = hush $ getNick $ messagePayload m
+	defaultConversation = Conversations.def ajid from messageType
+mapInboundConversation _ _ _ = return Nothing
 
 newThreadID :: Jid -> IO Text
 newThreadID jid = do
@@ -192,6 +228,8 @@ signals lockingChan connectionChan db (SendChat taccountJid totherSide thread ty
 
 		receivedAt <- liftIO $ getCurrentTime
 
+		when (typ' /= GroupChat) $
+			Conversations.insert db True ((Conversations.def jid otherSide typ') { Conversations.otherSide = otherSide })
 		fmapLT (T.unpack . show) $
 			Messages.send db s $ Messages.Message jid to otherSide thread' mid typ' Messages.Pending Nothing (Just body) receivedAt
 
@@ -203,7 +241,7 @@ signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
 		liftIO $ void $ acceptSubscription jid s
 	where
 	Just jid = jidFromUi jidt
-signals _ connectionChan _ (JoinMUC taccountjid tmucjid) =
+signals _ connectionChan db (JoinMUC taccountjid tmucjid) =
 	case (jidFromUi taccountjid, jidFromUi tmucjid) of
 		(Nothing, _) -> emit $ Error $ "Invalid account JID when joining MUC: " ++ T.unpack taccountjid
 		(_, Nothing) -> emit $ Error $ "Invalid MUC JID: " ++ T.unpack tmucjid
@@ -214,11 +252,13 @@ signals _ connectionChan _ (JoinMUC taccountjid tmucjid) =
 			maybeS <- syncCall connectionChan (GetSession accountjid)
 			case maybeS of
 				Left _ -> emit $ Error $ "Not connected"
-				Right s -> joinMUC s mucjid'
+				Right s -> joinMUC db s (toBare accountjid) mucjid'
 
-joinMUC :: Session -> Jid -> IO ()
-joinMUC s mucjid = eitherT (emit . Error . T.unpack . show) return $ EitherT $
-	sendPresence (presenceOnline { presenceTo = Just mucjid }) s
+joinMUC :: SQLite.Connection -> Session -> Jid -> Jid -> IO ()
+joinMUC db s ajid mucjid = do
+	Conversations.insert db True ((Conversations.def ajid mucjid GroupChat) { Conversations.otherSide = mucjid })
+	eitherT (emit . Error . T.unpack . show) return $ EitherT $
+		sendPresence (presenceOnline { presenceTo = Just mucjid }) s
 
 data RosterRequest = RosterSubbed Jid (TMVar Bool)
 
@@ -300,10 +340,9 @@ afterConnect db (Connection session jid _) = do
 	result <- (fmap . fmap) (const (jid', roster)) $ sendPresence initialPresence session
 
 	-- Re-join MUCs
-	mapM_ (\(Messages.Conversation jid) ->
-			let Just mjid = jidFromTexts (localpart jid) (domainpart jid) (localpart jid') in
-			joinMUC session mjid
-		) =<< Messages.getConversations db jid' GroupChat
+	mapM_ (\(Conversations.Conversation { Conversations.otherSide = jid }) ->
+			joinMUC db session jid' jid
+		) =<< Conversations.getConversations db (toBare jid') Conversations.GroupChat
 
 	-- Re-try pending messages
 	eitherT (emit . Error . T.unpack . show) return $ mapM_ (
@@ -450,6 +489,7 @@ app = do
 	unless dbExists $ eitherT (fail . T.unpack . show) return $ do
 		Accounts.createTable db
 		Messages.createTable db
+		Conversations.createTable db
 
 	lockingChan <- atomically newTChan
 	void $ forkIO (jidLockingServer lockingChan)
