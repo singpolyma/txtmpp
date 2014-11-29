@@ -35,6 +35,15 @@ import qualified Messages
 
 import UIMODULE (emit)
 
+jidForUi :: Jid -> Text
+jidForUi jid | (l,d,r) <- jidToTexts jid =
+	fromMaybe empty l ++ T.pack "@" ++ d ++ T.pack "/" ++ fromMaybe empty r
+
+jidFromUi :: Text -> Maybe Jid
+jidFromUi tjid
+	| T.last tjid == '/' = jidFromUi $ T.init tjid
+	| otherwise = jidFromText tjid
+
 authSession :: Jid -> Text -> (Session -> XmppFailure -> IO ()) -> [Plugin] -> IO (Either XmppFailure Session)
 authSession jid pass onClosed plugins | isJust user' =
 	session (T.unpack domain) (Just (sasl, resource)) (def {
@@ -67,7 +76,7 @@ presenceStream rosterChan lockingChan accountJid s = forever $ do
 	-- Does not filter out ourselves or other instances of our account
 	p <- waitForPresence (const True) s
 
-	for_ (NickSet . jidToText <$> presenceFrom p <*> hush (getNick $ presencePayload p)) emit
+	for_ (NickSet . jidForUi <$> presenceFrom p <*> hush (getNick $ presencePayload p)) emit
 
 	for_ (presenceFrom p) (atomically . writeTChan lockingChan . JidUnlock)
 
@@ -75,7 +84,7 @@ presenceStream rosterChan lockingChan accountJid s = forever $ do
 		(Just f, Subscribe) -> do
 			subbed <- getRosterSubbed rosterChan f
 			if subbed then void $ acceptSubscription f s else
-				emit $ SubscriptionRequest $ jidToText f
+				emit $ SubscriptionRequest $ jidForUi f
 		(_, _) -> return ()
 
 	case (presenceFrom p, presenceStatus p) of
@@ -83,7 +92,7 @@ presenceStream rosterChan lockingChan accountJid s = forever $ do
 		(Nothing,_) -> return ()
 		(Just f, Just (ss,status)) ->
 			-- f includes resource
-			emit $ PresenceSet (jidToText $ toBare accountJid) (jidToText f) (show ss) (maybe T.empty show status)
+			emit $ PresenceSet (jidToText $ toBare accountJid) (jidForUi f) (show ss) (maybe T.empty show status)
 
 messageErrors :: Session -> IO ()
 messageErrors s = forever $ do
@@ -120,21 +129,19 @@ ims lockingChan db jid s = forever $ do
 					when (dupe < (1 :: Int)) $ do
 						eitherT (emit . Error . T.unpack . show) return $
 							Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body stamp
-						emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
+						emit $ ChatMessage (jidToText $ toBare jid) (jidForUi otherJid) thread (jidForUi from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 				_ -> do
 					receivedAt <- getCurrentTime
 					eitherT (emit . Error . T.unpack . show) return $
 						Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body receivedAt
-					emit $ ChatMessage (jidToText $ toBare jid) (jidToText otherJid) thread (jidToText from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
+					emit $ ChatMessage (jidToText $ toBare jid) (jidForUi otherJid) thread (jidForUi from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 
+-- TODO: do not toBare messages from a MUC alias, and maybe other cases?
+-- otherSide represents what should be a seperate conversation view
 otherSide :: Jid -> Message -> Maybe Jid
-otherSide myjid m@(Message {messageFrom = from, messageTo = to})
-	| from == Just myjid = fmap over to
-	| otherwise = fmap over from
-	where
-	over jid = case messageType m of
-		GroupChat -> toBare jid
-		_ -> id jid
+otherSide myjid (Message {messageFrom = from, messageTo = to})
+	| from == Just myjid = fmap toBare to
+	| otherwise = fmap toBare from
 
 newThreadID :: Jid -> IO Text
 newThreadID jid = do
@@ -143,12 +150,12 @@ newThreadID jid = do
 
 jidOrError :: (MonadIO m) => Text -> (Jid -> m ()) -> m ()
 jidOrError txt io =
-	case jidFromText txt of
+	case jidFromUi txt of
 		Just jid -> io jid
 		Nothing -> liftIO $ emit $ Error $ T.unpack txt ++ " is not a valid JID"
 
 jidParse :: Text -> Either String Jid
-jidParse txt = note (T.unpack txt ++ " is not a valid JID") (jidFromText txt)
+jidParse txt = note (T.unpack txt ++ " is not a valid JID") (jidFromUi txt)
 
 connErr :: (Show e) => Jid -> e -> String
 connErr jid e = "Connection for " ++ T.unpack (jidToText jid) ++ " failed with: " ++ T.unpack (show e)
@@ -166,10 +173,10 @@ signals _ connectionChan _ Ready =
 	atomically $ writeTChan connectionChan RefreshAccounts
 signals _ connectionChan _ NetworkChanged =
 	atomically $ writeTChan connectionChan ReconnectAll
-signals lockingChan connectionChan db (SendChat taccountJid tto thread typ body) =
+signals lockingChan connectionChan db (SendChat taccountJid totherSide thread typ body) =
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
-		to <- hoistEither (jidParse tto)
+		otherSide <- hoistEither (jidParse totherSide)
 		typ' <- readZ $ T.unpack typ
 		s <- liftIO $ syncCall connectionChan (GetSession ajid)
 		jid' <- liftIO $ syncCall connectionChan (GetFullJid ajid)
@@ -180,23 +187,24 @@ signals lockingChan connectionChan db (SendChat taccountJid tto thread typ body)
 
 		-- Stanza id
 		mid <- liftIO $ newThreadID jid
-		to' <- liftIO $ syncCall lockingChan (JidGetLocked to)
+		thread' <- if thread == empty then liftIO (newThreadID jid) else return thread
+		to <- liftIO $ syncCall lockingChan (JidGetLocked otherSide)
 
 		receivedAt <- liftIO $ getCurrentTime
 
 		fmapLT (T.unpack . show) $
-			Messages.send db s $ Messages.Message jid to' to' thread mid typ' Messages.Pending Nothing (Just body) receivedAt
+			Messages.send db s $ Messages.Message jid to otherSide thread' mid typ' Messages.Pending Nothing (Just body) receivedAt
 
-		liftIO $ emit $ ChatMessage (jidToText $ toBare ajid) (jidToText $ toBare to) thread (jidToText jid) (show mid) T.empty body
+		liftIO $ emit $ ChatMessage (jidToText $ toBare ajid) (jidForUi $ toBare to) thread (jidForUi jid) (show mid) T.empty body
 signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
 		s <- fmapLT (connErr ajid) $ EitherT $ syncCall connectionChan (GetSession ajid)
 		liftIO $ void $ acceptSubscription jid s
 	where
-	Just jid = jidFromText jidt
+	Just jid = jidFromUi jidt
 signals _ connectionChan _ (JoinMUC taccountjid tmucjid) =
-	case (jidFromText taccountjid, jidFromText tmucjid) of
+	case (jidFromUi taccountjid, jidFromUi tmucjid) of
 		(Nothing, _) -> emit $ Error $ "Invalid account JID when joining MUC: " ++ T.unpack taccountjid
 		(_, Nothing) -> emit $ Error $ "Invalid MUC JID: " ++ T.unpack tmucjid
 		(Just accountjid, Just mucjid) -> do
@@ -284,8 +292,8 @@ afterConnect db (Connection session jid _) = do
 	-- Get roster and emit to UI
 	roster <- liftIO $ getRoster session
 	liftIO $ mapM_ (\(_,Item {riJid = j, riName = n}) -> do
-			emit $ PresenceSet (jidToText $ toBare jid') (jidToText j) (T.pack "Offline") T.empty
-			maybe (return ()) (emit . NickSet (jidToText j)) n
+			emit $ PresenceSet (jidToText $ toBare jid') (jidForUi j) (T.pack "Offline") T.empty
+			maybe (return ()) (emit . NickSet (jidForUi j)) n
 		) $ Map.toList (items roster)
 
 	-- Now send presence, so that we get presence from others
