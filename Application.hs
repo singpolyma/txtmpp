@@ -170,7 +170,8 @@ mapInboundConversation db ajid m@(Message {messageFrom = Just from, messageType 
 			MaybeT $ Conversations.getConversation db False ajid from
 	case nick of
 		Nothing -> return (Just conversation)
-		Just s  -> let c = conversation { Conversations.nickname = s } in
+		Just s  -> let c = conversation { Conversations.nickname = s } in do
+			emit $ NickSet (jidForUi from) s
 			Conversations.update db c >> return (Just c)
 	where
 	nick = hush $ getNick $ messagePayload m
