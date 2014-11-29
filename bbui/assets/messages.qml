@@ -164,6 +164,9 @@ Page {
 
 	onCreationCompleted: {
 		app.ChatMessage.connect(function(accountJid, otherSide, threadID, fromJid, stanzaID, subject, body) {
+			if(accountJid !== messagesPage.accountJid) return;
+			if(otherSide !== dm.query.bindValues["otherSide"]) return;
+
 			if(body) {
 				if(messagesViewScrollState.atEnd) scrollBottomTimer.start();
 				dm.query.emitDataChanged(2);
