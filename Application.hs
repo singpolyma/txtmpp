@@ -304,7 +304,7 @@ afterConnect db (Connection session jid _) = do
 
 	return result
 	where
-	initialPresence = withIMPresence (IMP Nothing (Just $ T.pack "woohoohere") (Just 12)) presenceOnline
+	initialPresence = withIMPresence (IMP Nothing Nothing (Just 0)) presenceOnline
 
 doReconnect :: SQLite.Connection -> Connection -> IO ()
 doReconnect db c@(Connection session _ _) = do
