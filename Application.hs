@@ -98,9 +98,7 @@ presenceStream rosterChan lockingChan accountJid s = forever $ do
 messageErrors :: Session -> IO ()
 messageErrors s = forever $ do
 	m <- waitForMessageError (const True) s
-	case messageErrorID m of
-		Just sid -> emit $ MessageErr $ show sid
-		Nothing -> return ()
+	for_ (messageErrorID m) (emit . MessageErr . show)
 
 ims :: TChan JidLockingRequest -> SQLite.Connection -> Jid -> Session -> IO ()
 ims lockingChan db jid s = forever $ do
