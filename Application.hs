@@ -130,12 +130,12 @@ ims lockingChan db jid s = forever $ do
 
 					when (dupe < (1 :: Int)) $ do
 						eitherT (emit . Error . T.unpack . show) return $
-							Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body stamp
+							Messages.insert db True $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body stamp
 						emit $ ChatMessage (jidToText $ toBare jid) (jidForUi otherJid) thread (jidForUi from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 				_ -> do
 					receivedAt <- getCurrentTime
 					eitherT (emit . Error . T.unpack . show) return $
-						Messages.insert db $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body receivedAt
+						Messages.insert db True $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body receivedAt
 					emit $ ChatMessage (jidToText $ toBare jid) (jidForUi otherJid) thread (jidForUi from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 
 mapInboundConversation :: SQLite.Connection -> Jid -> Message -> IO (Maybe Conversations.Conversation)

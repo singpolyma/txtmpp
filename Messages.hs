@@ -86,9 +86,13 @@ createTable conn = syncIO $
 		\ )") ()
 
 -- | Insert new message
-insert :: (MonadIO m) => Connection -> Message -> EitherT SomeException m ()
-insert conn = syncIO .
-	execute conn (qs"INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+insert :: (MonadIO m) => Connection -> Bool -> Message -> EitherT SomeException m ()
+insert conn ignoreExisting = syncIO .
+	execute conn (qs$"INSERT " ++ orIgnore ++ " INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+	where
+	orIgnore
+		| ignoreExisting = "OR IGNORE"
+		| otherwise = ""
 
 toXMPP :: Message -> Pontarius.Message
 toXMPP (Message from to _ threadId stanzaId typ _ subject body _) = withIM
@@ -123,9 +127,9 @@ send db session msg = do
 		Left  e -> return $! Left e
 		Right s -> syncIO $ sendMessage (toXMPP msg) s
 	case result of
-		Left XmppNoStream -> Messages.insert db (msg { status = Pending })
+		Left XmppNoStream -> Messages.insert db False (msg { status = Pending })
 		Left e            -> throwT $ toException e
-		Right ()          -> Messages.insert db (msg { status = Sent })
+		Right ()          -> Messages.insert db False (msg { status = Sent })
 
 getMessages :: (MonadIO m) => Connection -> Jid -> Status -> m [Message]
 getMessages conn account status = liftIO $ query conn
