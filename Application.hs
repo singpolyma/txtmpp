@@ -42,6 +42,7 @@ jidForUi jid | (l,d,r) <- jidToTexts jid =
 
 jidFromUi :: Text -> Maybe Jid
 jidFromUi tjid
+	| T.null tjid = Nothing
 	| T.last tjid == '/' = jidFromUi $ T.init tjid
 	| otherwise = jidFromText tjid
 
@@ -223,7 +224,8 @@ signals lockingChan connectionChan db (SendChat taccountJid totherSide thread ty
 		-- Stanza id
 		mid <- liftIO $ newThreadID jid
 		thread' <- if thread == empty then liftIO (newThreadID jid) else return thread
-		to <- liftIO $ syncCall lockingChan (JidGetLocked otherSide)
+		to <- if typ' == GroupChat then return $ toBare otherSide else
+			liftIO $ syncCall lockingChan (JidGetLocked otherSide)
 
 		receivedAt <- liftIO $ getCurrentTime
 
@@ -331,6 +333,10 @@ afterConnect db (Connection session jid _) = do
 	-- Get roster and emit to UI
 	roster <- liftIO $ getRoster session
 	liftIO $ mapM_ (\(_,Item {riJid = j, riName = n}) -> do
+			Conversations.insert db True (Conversations.Conversation
+					(toBare jid') j Conversations.Chat Conversations.Hidden
+					(fromMaybe (fromMaybe (jidToText j) $ localpart j) n)
+				)
 			emit $ PresenceSet (jidToText $ toBare jid') (jidForUi j) (T.pack "Offline") T.empty
 			maybe (return ()) (emit . NickSet (jidForUi j)) n
 		) $ Map.toList (items roster)
@@ -340,7 +346,7 @@ afterConnect db (Connection session jid _) = do
 
 	-- Re-join MUCs
 	mapM_ (\(Conversations.Conversation { Conversations.otherSide = jid }) ->
-			joinMUC db session jid' jid
+			joinMUC db session (toBare jid') jid
 		) =<< Conversations.getConversations db (toBare jid') Conversations.GroupChat
 
 	-- Re-try pending messages

@@ -21,7 +21,7 @@ qs :: String -> Query
 qs = Query . T.pack
 {-# INLINE qs #-}
 
-data Status = Active deriving (Show, Read, Eq)
+data Status = Active | Hidden deriving (Show, Read, Eq)
 data Type   = Chat | GroupChat deriving (Show, Read, Eq)
 
 data Conversation = Conversation {
@@ -53,11 +53,11 @@ instance ToRow Conversation where
 
 def :: Jid -> Jid -> MessageType -> Conversation
 def ajid from Pontarius.GroupChat = Conversations.Conversation
-	ajid (let Just jid = jidFromTexts (localpart from) (domainpart from) (localpart ajid) in jid)
+	(toBare ajid) (let Just jid = jidFromTexts (localpart from) (domainpart from) (localpart ajid) in jid)
 	Conversations.GroupChat Conversations.Active
 	(fromMaybe (domainpart from) $ localpart from)
 def ajid from _ = Conversations.Conversation
-	ajid (toBare from) Conversations.Chat Conversations.Active
+	(toBare ajid) (toBare from) Conversations.Chat Conversations.Active
 	(fromMaybe (domainpart from) $ localpart from)
 
 createTable :: (MonadIO m) => Connection -> EitherT SomeException m ()

@@ -16,16 +16,12 @@ NavigationPane {
 				id: conversationsView
 				dataModel: dm
 
-				function getNickname(jid) {
-					return navigationPane.nicknames[JID.toBare(jid)] || JID.localpart(jid);
-				}
-
 				listItemComponents: [
 					ListItemComponent {
 						StandardListItem {
-							title: ListItem.view.getNickname(ListItemData.otherSide)
+							title: ListItemData.nickname
 							description: ListItemData.lastMessage
-							status: PrettyDate.format(new Date(ListItemData.time * 1000))
+							status: ListItemData.time * 1 > 0 ? PrettyDate.format(new Date(ListItemData.time * 1000)) : ''
 						}
 					}
 				]
@@ -45,8 +41,8 @@ NavigationPane {
 
 					query: SqlDataQuery {
 						source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
-						query: "SELECT ROWID as id, 1 AS revision_id, body AS lastMessage, MAX(strftime('%s', datetime(receivedAt))) AS time, COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '') AS otherSide, COALESCE(to_localpart, '') || '@' || to_domainpart AS jid FROM messages WHERE body IS NOT NULL GROUP BY otherSide_localpart, otherSide_domainpart, otherSide_resourcepart ORDER BY receivedAt DESC"
-						countQuery: "SELECT COUNT(*) FROM (SELECT DISTINCT otherSide_localpart, otherSide_domainpart, otherSide_resourcepart FROM messages WHERE body IS NOT NULL)"
+						query: "SELECT conversations.ROWID as id, 1 AS revision_id, nickname, body AS lastMessage, MAX(strftime('%s', datetime(receivedAt))) AS time, COALESCE(conversations.otherSide_localpart, '') || '@' || conversations.otherSide_domainpart || '/' || COALESCE(conversations.otherSide_resourcepart, '') AS otherSide, COALESCE(jid_localpart, '') || '@' || jid_domainpart AS jid FROM conversations LEFT JOIN (SELECT * FROM messages WHERE body IS NOT NULL) USING (otherSide_localpart, otherSide_domainpart, otherSide_resourcepart) GROUP BY conversations.jid_localpart, conversations.jid_domainpart, conversations.jid_resourcepart, conversations.otherSide_localpart, conversations.otherSide_domainpart, conversations.otherSide_resourcepart ORDER BY CASE WHEN receivedAt IS NULL THEN 1 ELSE 0 END, receivedAt, nickname, jid_localpart DESC"
+						countQuery: "SELECT COUNT(*) FROM conversations"
 						keyColumn: "id"
 						revisionColumn: "revision_id"
 						revisionQuery: "SELECT 1"
