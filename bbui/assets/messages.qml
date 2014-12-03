@@ -45,13 +45,13 @@ Page {
 			id: messagesView
 			dataModel: dm
 
-			function getNickname(jid, otherSide) {
+			function getNickname(jid, otherSide, type) {
 				var nick = navigationPane.nicknames[JID.toBare(jid)];
 				if(nick) return nick;
-				if(!nick && jid == otherSide) {
-					return JID.localpart(jid);
-				} else {
+				if(type == 'GroupChat' && JID.toBare(jid) == JID.toBare(otherSide)) {
 					return JID.resourcepart(jid);
+				} else {
+					return JID.localpart(jid);
 				}
 			}
 
@@ -92,7 +92,7 @@ Page {
 										color: Color.LightGray
 									}
 
-									text: messageListItem.ListItem.view.getNickname(ListItemData.from, ListItemData.otherSide)
+									text: messageListItem.ListItem.view.getNickname(ListItemData.from, ListItemData.otherSide, ListItemData.type)
 								}
 
 								Label {
