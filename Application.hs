@@ -30,6 +30,7 @@ import Nick
 import Ping
 import Disco
 import DelayedDelivery
+import MUC
 import qualified Accounts
 import qualified Messages
 import qualified Conversations
@@ -259,7 +260,7 @@ joinMUC :: SQLite.Connection -> Session -> Jid -> Jid -> IO ()
 joinMUC db s ajid mucjid = do
 	Conversations.insert db True ((Conversations.def ajid mucjid GroupChat) { Conversations.otherSide = mucjid })
 	eitherT (emit . Error . T.unpack . show) return $ EitherT $
-		sendPresence (presenceOnline { presenceTo = Just mucjid }) s
+		sendPresence (MUC.joinPresence mucjid) s
 
 data RosterRequest = RosterSubbed Jid (TMVar Bool)
 
