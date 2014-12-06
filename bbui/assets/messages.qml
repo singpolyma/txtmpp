@@ -16,7 +16,6 @@ Page {
 			"otherSide": otherSide
 		};
 		dm.load();
-		scrollBottomTimer.start();
 	}
 
 	function inKindOrDefault(key, def) {
@@ -151,7 +150,7 @@ Page {
 					onError: console.log("SQL query error: " + code + ", " + message)
 				}
 
-				onLoaded: console.log("initial model data is loaded")
+				onLoaded: scrollBottomTimer.start()
 			},
 
 			QTimer {
