@@ -6,7 +6,7 @@ CONFIG += qt thread warn_on debug_and_release cascades
 INCLUDEPATH += ../src
 SOURCES += ../src/*.cpp
 HEADERS += ../src/*.h
-LIBS += -lbbsystem -lbbplatform -lbbcascadesdatamanager
+LIBS += -lbbsystem -lbbplatform -lbbcascadesdatamanager -lunifieddatasourcec -lbbpim
 QT += network
 DEFINES += USE_NOTIFICATIONS USE_INVOCATIONS
 

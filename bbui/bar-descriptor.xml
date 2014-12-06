@@ -28,7 +28,7 @@
 		 May have multiple values for each language. See samples or xsd schema file. Optional. -->
 	<description>An SMS-replacement XMPP client</description>
 
-	<icon><image>assets/xmpp.png</image></icon>
+	<icon><image>assets-public/xmpp.png</image></icon>
 
 	<!--  Name of author which is used for signing. Must match the developer name of your development certificate. -->
 	<author>ArtBarn Labs</author>
@@ -63,6 +63,7 @@
 
 	<!-- Application assets -->
 	<asset path="assets">assets</asset>
+	<asset path="assets/public" public="true">assets-public</asset>
 
 	<!-- Locale support -->
 	<asset path="translations" dest="qm">
@@ -81,7 +82,8 @@
 	<!-- Request permission to execute native code.  Required for native applications. -->
 	<permission system="true">run_native</permission>
 	<permission>access_internet</permission>
-	<permission>post_notification</permission>
+	<permission system="true">_sys_manage_pimdomain_external_accounts</permission>
+	<permission>_sys_access_pim_unified</permission>
 	<permission system="true">run_when_backgrounded</permission>
 	<env var="LD_LIBRARY_PATH" value="app/native/lib:/usr/lib/qt4/lib"/>
 	<env var="SYSTEM_CERTIFICATE_PATH" value="/etc/openssl/certs/"/>
