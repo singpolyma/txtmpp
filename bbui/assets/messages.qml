@@ -161,6 +161,17 @@ Page {
 		]
 	}
 
+	actions: [
+		ActionItem {
+			title: "Scroll To Bottom"
+			ActionBar.placement: ActionBarPlacement.OnBar
+
+			onTriggered: {
+				scrollBottomTimer.start();
+			}
+		}
+	]
+
 	onCreationCompleted: {
 		app.ChatMessage.connect(function(accountJid, otherSide, threadID, fromJid, stanzaID, subject, body) {
 			if(accountJid !== messagesPage.accountJid) return;
