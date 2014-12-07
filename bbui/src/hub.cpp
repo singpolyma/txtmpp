@@ -101,6 +101,7 @@ static long long int getAccountId(const QString &username, const QString &displa
 }
 
 Q_DECL_EXPORT int hub_setup_account(const char *username, const char *displayName, const char *icon, const char *owner, const char *assets) {
+	int r = 0;
 	long long int accountId = getAccountId(username, displayName, owner, assets);
 
 	if(accountId < 0) return accountId;
@@ -114,30 +115,44 @@ Q_DECL_EXPORT int hub_setup_account(const char *username, const char *displayNam
 	uds_account_data_set_target_name(account_data, owner);
 
 	if(!handle) reinit(owner, assets);
-	if(!handle) return -1;
+	if(!handle) {
+		r = -1;
+		goto cleanup;
+	}
 
-	int r = UDS_ERROR_TIMEOUT;
+	r = UDS_ERROR_TIMEOUT;
 	while(r == UDS_ERROR_TIMEOUT) {
 		r = uds_account_updated(handle, account_data);
 		if(r == UDS_ERROR_DISCONNECTED) {
 			reinit(owner, assets);
-			if(!handle) return -1;
+			if(!handle) {
+				r = -1;
+				goto cleanup;
+			}
 		}
 	}
 
-	if(r == UDS_SUCCESS) return accountId;
+	if(r == UDS_SUCCESS) goto cleanup;
 
 	r = UDS_ERROR_TIMEOUT;
 	while(r == UDS_ERROR_TIMEOUT) {
 		r = uds_account_added(handle, account_data);
 		if(r == UDS_ERROR_DISCONNECTED) {
 			reinit(owner, assets);
-			if(!handle) return -1;
+			if(!handle) {
+				r = -1;
+				goto cleanup;
+			}
 		}
 	}
 
+	if(r != UDS_SUCCESS) r = -2;
+
+cleanup:
+	uds_account_data_destroy(account_data);
+
 	if(r == UDS_SUCCESS) return accountId;
-	return -2;
+	return r;
 }
 
 }
