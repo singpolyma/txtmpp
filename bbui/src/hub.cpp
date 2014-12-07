@@ -10,11 +10,11 @@
 
 /* This code is not threadsafe -- only invoke the hub from one thread */
 
-//extern "C" {
+extern "C" {
 
 static uds_context_t handle = NULL;
 
-static void reinit(const QString &owner, const QString &assets) {
+static void reinit(const char *owner, const char *assets) {
 	if(handle) uds_close(&handle);
 	handle = NULL;
 
@@ -24,7 +24,7 @@ static void reinit(const QString &owner, const QString &assets) {
 	} else {
 		int r = UDS_ERROR_TIMEOUT;
 		while(r == UDS_ERROR_TIMEOUT) {
-			r = uds_register_client(handle, owner.toUtf8().constData(), "", assets.toUtf8().constData());
+			r = uds_register_client(handle, owner, "", assets);
 			if(r == UDS_ERROR_DISCONNECTED) reinit(owner, assets);
 		}
 
@@ -33,31 +33,39 @@ static void reinit(const QString &owner, const QString &assets) {
 	}
 }
 
-static long long int getAccountId(const QString &username, const QString &displayName, const QString &owner, const QString &assets) {
+Q_DECL_EXPORT int hub_remove_account(long long int accountId, const char *owner, const char *assets) {
+	if(!handle) reinit(owner, assets);
+	if(!handle) return -1;
+
+	int r = UDS_ERROR_TIMEOUT;
+	while(r == UDS_ERROR_TIMEOUT) {
+		r = uds_account_removed(handle, accountId);
+		if(r == UDS_ERROR_DISCONNECTED) {
+			reinit(owner, assets);
+			if(!handle) return -1;
+		}
+	}
+
+	if(r != UDS_SUCCESS) return -2;
+	bb::pim::account::AccountService service;
+	service.deleteAccount(accountId);
+
+	return 0;
+}
+
+static long long int getAccountId(const QString &username, const QString &displayName, const char *owner, const char *assets) {
 	bb::pim::account::Account account;
 	bb::pim::account::AccountService service;
 
 	QList<bb::pim::account::Account> accounts = service.accounts();
-	if(accounts.isEmpty()) return -2;
+	if(accounts.isEmpty()) return -3;
 
 	bool found = false;
 	for(QList<bb::pim::account::Account>::ConstIterator it = accounts.constBegin(); it != accounts.constEnd(); it++) {
 		if(it->isExternalData() && it->externalSetupInvokeTarget() == owner && it->settingsProperty("user") == username) {
 			if(found) {
-				if(!handle) reinit(owner, assets);
-				if(!handle) return -1;
-
-				int r = UDS_ERROR_TIMEOUT;
-				while(r == UDS_ERROR_TIMEOUT) {
-					r = uds_account_removed(handle, it->id());
-					if(r == UDS_ERROR_DISCONNECTED) {
-						reinit(owner, assets);
-						if(!handle) return -1;
-					}
-				}
-
-				if(r != UDS_SUCCESS) return -3;
-				service.deleteAccount(it->id());
+				int r = 0;
+				if((r = hub_remove_account(it->id(), owner, assets)) < 0) return r;
 			} else {
 				found = true;
 				account = *it;
@@ -92,23 +100,18 @@ static long long int getAccountId(const QString &username, const QString &displa
 	return account.id();
 }
 
-int hub_setup_one_account(const QString &username, const QString &displayName, const QString &icon, const QString &owner, const QString &assets) {
+Q_DECL_EXPORT int hub_setup_account(const char *username, const char *displayName, const char *icon, const char *owner, const char *assets) {
 	long long int accountId = getAccountId(username, displayName, owner, assets);
 
 	if(accountId < 0) return accountId;
 
-	QByteArray displayNameBytes = displayName.toUtf8();
-	QByteArray usernameBytes = username.toUtf8();
-	QByteArray iconBytes = icon.toUtf8();
-	QByteArray ownerBytes = owner.toUtf8();
-
 	uds_account_data_t *account_data = uds_account_data_create();
 	uds_account_data_set_id(account_data, accountId);
 	uds_account_data_set_type(account_data, UDS_ACCOUNT_TYPE_IM);
-	uds_account_data_set_name(account_data, displayNameBytes.constData());
-	uds_account_data_set_description(account_data, usernameBytes.constData());
-	uds_account_data_set_icon(account_data, iconBytes.constData());
-	uds_account_data_set_target_name(account_data, ownerBytes.constData());
+	uds_account_data_set_name(account_data, displayName);
+	uds_account_data_set_description(account_data, username);
+	uds_account_data_set_icon(account_data, icon);
+	uds_account_data_set_target_name(account_data, owner);
 
 	if(!handle) reinit(owner, assets);
 	if(!handle) return -1;
@@ -137,4 +140,4 @@ int hub_setup_one_account(const QString &username, const QString &displayName, c
 	return -2;
 }
 
-//}
+}

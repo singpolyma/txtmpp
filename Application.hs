@@ -36,6 +36,7 @@ import qualified Messages
 import qualified Conversations
 
 import UIMODULE (emit)
+import HUBMODULE
 
 jidForUi :: Jid -> Text
 jidForUi jid | (l,d,r) <- jidToTexts jid =
@@ -417,8 +418,8 @@ data ConnectionManagerStateItem = CM {
 		cmClosing    :: Bool
 	}
 
-connectionManager :: TChan ConnectionRequest -> TChan JidLockingRequest -> SQLite.Connection -> IO ()
-connectionManager chan lockingChan db = void $ runStateT
+connectionManager :: TChan ConnectionRequest -> TChan JidLockingRequest -> TChan HubRequest -> SQLite.Connection -> IO ()
+connectionManager chan lockingChan hubChan db = void $ runStateT
 	(forever $ liftIO (atomically $ readTChan chan) >>= msg) empty
 	where
 	msg RefreshAccounts = eitherT (emit . Error . T.unpack . show) return $ do
@@ -431,19 +432,24 @@ connectionManager chan lockingChan db = void $ runStateT
 
 		-- Add any new accounts, and reconnect any failed accounts
 		lift . put =<< foldM (\m a@(Accounts.Account jid _) -> do
+				let oldRef = Map.lookup (toBare jid) oldAccounts
+				when (isNothing oldRef) (liftIO $ atomically $ writeTChan hubChan (AddHubAccount $ jidToText $ toBare jid))
+
 				a' <- maybeConnect lockingChan chan db a $ do
-					oa <- rightZ =<< fmap cmConnection (Map.lookup (toBare jid) oldAccounts)
+					oa <- rightZ =<< fmap cmConnection oldRef
 					guard (connectionJid oa == jid) -- do not reuse if resource has changed
 					return $! oa
 				return $! Map.insert (toBare jid) (CM a' (posixSecondsToUTCTime 0) 0 False) m
 			) empty accounts
 
 		-- Kill dead threads
-		mapM_ (\k -> case Map.lookup k oldAccounts of
-				Just (CM { cmConnection = Right (Connection _ _ cleanup) }) ->
+		mapM_ (\k -> do
+			liftIO $ atomically $ writeTChan hubChan (RemoveHubAccount $ jidToText $ toBare k)
+			case Map.lookup k oldAccounts of
+				Just (CM { cmConnection = Right (Connection _ _ cleanup) }) -> do
 					liftIO $ runUnexceptionalIO cleanup
 				_ -> return ()
-			) (Map.keys oldAccounts \\ map Accounts.jid accounts)
+			) (Map.keys oldAccounts \\ map (toBare . Accounts.jid) accounts)
 
 		emit AccountsChanged -- In case we made changes
 	msg (GetSession jid r) =
@@ -500,8 +506,11 @@ app = do
 	lockingChan <- atomically newTChan
 	void $ forkIO (jidLockingServer lockingChan)
 
+	hubChan <- atomically newTChan
+	void $ forkIO (hubServer hubChan)
+
 	connectionChan <- atomically newTChan
-	void $ forkIO (connectionManager connectionChan lockingChan db)
+	void $ forkIO (connectionManager connectionChan lockingChan hubChan db)
 	void $ forkIO (atomically (writeTChan connectionChan MaybePing) >> threadDelay 270000000)
 
 	return (signals lockingChan connectionChan db)
