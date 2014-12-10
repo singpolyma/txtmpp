@@ -1,5 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
-module BlackberryHub where
+module BlackberryHub (HubRequest(..), hubServer) where
 
 import Prelude ()
 import BasicPrelude
@@ -19,26 +19,70 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.ByteString as BS
 
-import System.Log.Logger
-
 data HubRequest = AddHubAccount Text | RemoveHubAccount Text deriving (Show, Eq)
 
 newtype AccountID = AccountID CLLong deriving (Show, Eq, Ord)
+newtype AccountType = AccountType CInt deriving (Show, Eq, Ord)
+
+data UDSAccount
 
 foreign import ccall safe "hub.cpp hub_init"
 	c_hub_init ::
 	CString -> CString ->
 	IO CInt
 
-foreign import ccall safe "hub.cpp hub_setup_account"
-	c_hub_setup_account ::
-	CString -> CString -> CString ->
+foreign import ccall safe "hub.cpp hub_find_account_id"
+	c_hub_find_account_id ::
+	CString ->
 	IO AccountID
 
 foreign import ccall safe "hub.cpp hub_remove_account"
 	c_hub_remove_account ::
 	AccountID ->
 	IO CInt
+
+foreign import ccall safe "hub.cpp hub_update_account"
+	c_hub_update_account ::
+	Ptr UDSAccount ->
+	IO CInt
+
+foreign import ccall safe "bb/pim/unified/unified_data_source.h uds_account_data_create"
+	c_uds_account_data_create ::
+	IO (Ptr UDSAccount)
+
+foreign import ccall safe "bb/pim/unified/unified_data_source.h &uds_account_data_destroy"
+	c_uds_account_data_destroy ::
+   FinalizerPtr UDSAccount
+
+foreign import ccall safe "bb/pim/unified/unified_data_source.h uds_account_data_set_id"
+	c_uds_account_data_set_id ::
+	Ptr UDSAccount -> AccountID ->
+	IO ()
+
+foreign import ccall safe "bb/pim/unified/unified_data_source.h uds_account_data_set_type"
+	c_uds_account_data_set_type ::
+	Ptr UDSAccount -> AccountType ->
+	IO ()
+
+foreign import ccall safe "bb/pim/unified/unified_data_source.h uds_account_data_set_name"
+	c_uds_account_data_set_name ::
+	Ptr UDSAccount -> CString ->
+	IO ()
+
+foreign import ccall safe "bb/pim/unified/unified_data_source.h uds_account_data_set_description"
+	c_uds_account_data_set_description ::
+	Ptr UDSAccount -> CString ->
+	IO ()
+
+foreign import ccall safe "bb/pim/unified/unified_data_source.h uds_account_data_set_icon"
+	c_uds_account_data_set_icon ::
+	Ptr UDSAccount -> CString ->
+	IO ()
+
+foreign import ccall safe "bb/pim/unified/unified_data_source.h uds_account_data_set_target_name"
+	c_uds_account_data_set_target_name ::
+	Ptr UDSAccount -> CString ->
+	IO ()
 
 hubServer :: TChan HubRequest -> IO ()
 hubServer chan = evalContT $ do
@@ -50,11 +94,25 @@ hubServer chan = evalContT $ do
 	where
 	msg (AddHubAccount jid) = mapStateT evalContT $ do
 		csjid <- lift $ ContT $ BS.useAsCString (T.encodeUtf8 jid)
-		displayName <- lift $ ContT $ BS.useAsCString (T.encodeUtf8 $ T.pack "txtmpp")
-		icon <- lift $ ContT $ BS.useAsCString (T.encodeUtf8 $ T.pack "hub.png")
+		accountId <- lift $ lift $ c_hub_find_account_id csjid
+		mapStateT lift $ if accountId < AccountID 0 then return () else do -- TODO: log error?
+			account <- lift $ newForeignPtr c_uds_account_data_destroy =<< c_uds_account_data_create
+			lift $ withForeignPtr account $ \account -> evalContT $ do
+				lift $ c_uds_account_data_set_id account accountId
+				lift $ c_uds_account_data_set_type account (AccountType 6) -- type IM
+				lift $ c_uds_account_data_set_description account csjid
 
-		accountId <- lift $ lift $ c_hub_setup_account csjid displayName icon
-		if accountId < AccountID 0 then return () else -- TODO: Log error?
+				name <- ContT $ BS.useAsCString (T.encodeUtf8 $ T.pack "txtmpp")
+				lift $ c_uds_account_data_set_name account name
+
+				icon <- ContT $ BS.useAsCString (T.encodeUtf8 $ T.pack "hub.png")
+				lift $ c_uds_account_data_set_icon account icon
+
+				target <- ContT $ BS.useAsCString (T.encodeUtf8 $ T.pack "net.singpolyma.txtmpp")
+				lift $ c_uds_account_data_set_target_name account target
+
+				void $ lift $ c_hub_update_account account -- TODO: log error?
+
 			modify (Map.insert jid accountId)
 	msg (RemoveHubAccount jid) = mapStateT evalContT $ do
 		accountId <- Map.lookup jid <$> get

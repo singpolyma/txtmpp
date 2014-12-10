@@ -157,25 +157,4 @@ Q_DECL_EXPORT long long int hub_find_account_id(const char *username) {
 	return account.id();
 }
 
-Q_DECL_EXPORT long long int hub_setup_account(const char *username, const char *displayName, const char *icon) {
-	long long int accountId = hub_find_account_id(username);
-
-	if(accountId < 0) return accountId;
-
-	uds_account_data_t *account_data = uds_account_data_create();
-	uds_account_data_set_id(account_data, accountId);
-	uds_account_data_set_type(account_data, UDS_ACCOUNT_TYPE_IM);
-	uds_account_data_set_name(account_data, displayName);
-	uds_account_data_set_description(account_data, username);
-	uds_account_data_set_icon(account_data, icon);
-	uds_account_data_set_target_name(account_data, owner);
-
-	int r = hub_update_account(account_data);
-
-	uds_account_data_destroy(account_data);
-
-	if(r == 0) return accountId;
-	return r;
-}
-
 }
