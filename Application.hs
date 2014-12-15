@@ -103,8 +103,8 @@ messageErrors s = forever $ do
 	m <- waitForMessageError (const True) s
 	for_ (messageErrorID m) (emit . MessageErr . show)
 
-ims :: TChan JidLockingRequest -> SQLite.Connection -> Jid -> Session -> IO ()
-ims lockingChan db jid s = forever $ do
+ims :: TChan JidLockingRequest -> TChan HubRequest -> SQLite.Connection -> Jid -> Session -> IO ()
+ims lockingChan hubChan db jid s = forever $ do
 	m <- getMessage s
 	defaultId <- fmap ((T.pack "noStanzaId-" ++) . show) UUID.nextRandom
 
@@ -134,11 +134,14 @@ ims lockingChan db jid s = forever $ do
 						eitherT (emit . Error . T.unpack . show) return $
 							Messages.insert db True $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body stamp
 						emit $ ChatMessage (jidToText $ toBare jid) (jidForUi otherJid) thread (jidForUi from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
+
+						atomically $ writeTChan hubChan $ UpdateInboxItem (messageType m /= GroupChat) $ InboxItem (jidToText $ toBare jid) (jidToText otherJid) (fromMaybe (T.pack "no name") $ localpart from) (fromMaybe empty body) stamp
 				_ -> do
 					receivedAt <- getCurrentTime
 					eitherT (emit . Error . T.unpack . show) return $
 						Messages.insert db True $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body receivedAt
 					emit $ ChatMessage (jidToText $ toBare jid) (jidForUi otherJid) thread (jidForUi from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
+					atomically $ writeTChan hubChan $ UpdateInboxItem (messageType m /= GroupChat) $ InboxItem (jidToText $ toBare jid) (jidToText otherJid) (fromMaybe (T.pack "no name") $ localpart from) (fromMaybe empty body) receivedAt
 
 mapInboundConversation :: SQLite.Connection -> Jid -> Message -> IO (Maybe Conversations.Conversation)
 mapInboundConversation db ajid m@(Message {messageFrom = Just from, messageType = GroupChat}) = do
@@ -198,20 +201,20 @@ jidParse txt = note (T.unpack txt ++ " is not a valid JID") (jidFromUi txt)
 connErr :: (Show e) => Jid -> e -> String
 connErr jid e = "Connection for " ++ T.unpack (jidToText jid) ++ " failed with: " ++ T.unpack (show e)
 
-signals :: TChan JidLockingRequest -> TChan ConnectionRequest -> SQLite.Connection -> SignalFromUI -> IO ()
-signals _ connectionChan db (UpdateAccount jidt pass) = do
+signals :: TChan JidLockingRequest -> TChan ConnectionRequest -> TChan HubRequest -> SQLite.Connection -> SignalFromUI -> IO ()
+signals _ connectionChan _ db (UpdateAccount jidt pass) = do
 		eitherT (emit . Error . T.unpack . show) return $
 			jidOrError jidt (Accounts.update db . (`Accounts.Account` pass))
 		atomically $ writeTChan connectionChan RefreshAccounts
-signals _ connectionChan db (RemoveAccount jidt) = do
+signals _ connectionChan _ db (RemoveAccount jidt) = do
 		eitherT (emit . Error . T.unpack . show) return $
 			jidOrError jidt (Accounts.remove db)
 		atomically $ writeTChan connectionChan RefreshAccounts
-signals _ connectionChan _ Ready =
+signals _ connectionChan _ _ Ready =
 	atomically $ writeTChan connectionChan RefreshAccounts
-signals _ connectionChan _ NetworkChanged =
+signals _ connectionChan _ _ NetworkChanged =
 	atomically $ writeTChan connectionChan ReconnectAll
-signals lockingChan connectionChan db (SendChat taccountJid totherSide thread typ body) =
+signals lockingChan connectionChan hubChan db (SendChat taccountJid totherSide thread typ body) =
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
 		otherSide <- hoistEither (jidParse totherSide)
@@ -237,14 +240,15 @@ signals lockingChan connectionChan db (SendChat taccountJid totherSide thread ty
 			Messages.send db s $ Messages.Message jid to otherSide thread' mid typ' Messages.Pending Nothing (Just body) receivedAt
 
 		liftIO $ emit $ ChatMessage (jidToText $ toBare ajid) (jidForUi $ toBare to) thread (jidForUi jid) (show mid) T.empty body
-signals _ connectionChan _ (AcceptSubscription taccountJid jidt) =
+		liftIO $ atomically $ writeTChan hubChan $ UpdateInboxItem False $ InboxItem (jidToText $ toBare ajid) (jidToText otherSide) (fromMaybe (T.pack "no name") $ localpart to) body receivedAt
+signals _ connectionChan _ _ (AcceptSubscription taccountJid jidt) =
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
 		s <- fmapLT (connErr ajid) $ EitherT $ syncCall connectionChan (GetSession ajid)
 		liftIO $ void $ acceptSubscription jid s
 	where
 	Just jid = jidFromUi jidt
-signals _ connectionChan db (JoinMUC taccountjid tmucjid) =
+signals _ connectionChan _ db (JoinMUC taccountjid tmucjid) =
 	case (jidFromUi taccountjid, jidFromUi tmucjid) of
 		(Nothing, _) -> emit $ Error $ "Invalid account JID when joining MUC: " ++ T.unpack taccountjid
 		(_, Nothing) -> emit $ Error $ "Invalid MUC JID: " ++ T.unpack tmucjid
@@ -372,8 +376,8 @@ doReconnect db c@(Connection session _ _) = do
 		Left _ -> doReconnect db c
 		Right _ -> return ()
 
-maybeConnect :: (MonadIO m) => TChan JidLockingRequest -> TChan ConnectionRequest -> SQLite.Connection -> Accounts.Account -> Maybe Connection -> m (Either XmppFailure Connection)
-maybeConnect lc cc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
+maybeConnect :: (MonadIO m) => TChan JidLockingRequest -> TChan ConnectionRequest -> TChan HubRequest-> SQLite.Connection -> Accounts.Account -> Maybe Connection -> m (Either XmppFailure Connection)
+maybeConnect lc cc hc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT $ do
 	session <- EitherT $ authSession jid pass (\s _ -> doReconnect db $ Connection s jid (return ()))
 		-- Plugins to check if it's reasonable to ping every time we have the radio on anyway
 		[(\out -> return $ Plugin'
@@ -388,7 +392,7 @@ maybeConnect lc cc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT 
 	rosterThread <- liftIO $ forkIO (rosterServer rosterChan (items roster))
 
 	-- Stanza handling threads
-	imThread <- liftIO $ forkIO (ims lc db jid' session)
+	imThread <- liftIO $ forkIO (ims lc hc db jid' session)
 	errThread <- liftIO $ forkIO (messageErrors =<< dupSession session)
 	pThread <- liftIO $ forkIO (presenceStream rosterChan lc jid' =<< dupSession session)
 
@@ -405,7 +409,7 @@ maybeConnect lc cc db (Accounts.Account jid pass) Nothing = liftIO $ runEitherT 
 		Nothing -> do
 			liftIO $ mapM_ killThread [rosterThread, imThread, errThread, pThread]
 			left XmppNoStream
-maybeConnect _ _ _ _ (Just x) = return (Right x)
+maybeConnect _ _ _ _ _ (Just x) = return (Right x)
 
 lookupConnection :: (Functor m, Monad m) => Jid -> StateT (Map Jid ConnectionManagerStateItem) m (Either XmppFailure Connection)
 lookupConnection jid =
@@ -435,7 +439,7 @@ connectionManager chan lockingChan hubChan db = void $ runStateT
 				let oldRef = Map.lookup (toBare jid) oldAccounts
 				when (isNothing oldRef) (liftIO $ atomically $ writeTChan hubChan (AddHubAccount $ jidToText $ toBare jid))
 
-				a' <- maybeConnect lockingChan chan db a $ do
+				a' <- maybeConnect lockingChan chan hubChan db a $ do
 					oa <- rightZ =<< fmap cmConnection oldRef
 					guard (connectionJid oa == jid) -- do not reuse if resource has changed
 					return $! oa
@@ -513,4 +517,4 @@ app = do
 	void $ forkIO (connectionManager connectionChan lockingChan hubChan db)
 	void $ forkIO (atomically (writeTChan connectionChan MaybePing) >> threadDelay 270000000)
 
-	return (signals lockingChan connectionChan db)
+	return (signals lockingChan connectionChan hubChan db)
