@@ -72,8 +72,9 @@ Page {
 
 							Divider { }
 
-							Label {
-								multiline: true
+							TextArea {
+								editable: false
+								backgroundVisible: false
 								horizontalAlignment: HorizontalAlignment.Fill
 
 								text: ListItemData.body
