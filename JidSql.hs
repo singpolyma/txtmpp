@@ -42,17 +42,17 @@ jidQuery True c jid
 		)
 	| Just l <- localpart jid =
 		(
-			"("++c++"_localpart=? AND "++c++"_domainpart=? AND "++c++"_resourcepart IS NULL)",
+			"("++c++"_localpart=? AND "++c++"_domainpart=? AND "++c++"_resourcepart='')",
 			[toField l, toField $ domainpart jid]
 		)
 	| Just r <- resourcepart jid =
 		(
-			"("++c++"_localpart IS NULL AND "++c++"_domainpart=? AND "++c++"_resourcepart=?)",
+			"("++c++"_localpart='' AND "++c++"_domainpart=? AND "++c++"_resourcepart=?)",
 			[toField $ domainpart jid, toField r]
 		)
 	| otherwise =
 		(
-			"("++c++"_localpart IS NULL AND "++c++"_domainpart=? AND "++c++"_resourcepart IS NULL)",
+			"("++c++"_localpart='' AND "++c++"_domainpart=? AND "++c++"_resourcepart='')",
 			[toField $ domainpart jid]
 		)
 jidQuery False c jid
@@ -63,6 +63,6 @@ jidQuery False c jid
 		)
 	| otherwise =
 		(
-			"("++c++"_localpart IS NULL AND "++c++"_domainpart=?)",
+			"("++c++"_localpart='' AND "++c++"_domainpart=?)",
 			[toField $ domainpart jid]
 		)
