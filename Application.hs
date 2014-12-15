@@ -8,6 +8,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans.State (StateT, runStateT, get, put, modify)
 import Control.Error (hush, runEitherT, EitherT(..), left, note, readZ, rightZ, fmapLT, eitherT, hoistEither, throwT, MaybeT(..), maybeT)
+import Control.Exception (SomeException(..), AsyncException(ThreadKilled, UserInterrupt))
 import Filesystem (getAppConfigDirectory, createTree, isFile)
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime, UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
@@ -37,6 +38,16 @@ import qualified Conversations
 
 import UIMODULE (emit)
 import HUBMODULE
+
+forkCatch :: (MonadIO m) => String -> IO () -> m ThreadId
+forkCatch descr io = liftIO $ forkIO (io `catch` (\e@(SomeException _) ->
+		case fromException e of
+			Just ThreadKilled -> throwIO e
+			Just UserInterrupt -> throwIO e
+			_ -> do
+				emit $ Error $ descr ++ ": " ++ T.unpack (show e)
+				throwIO e
+	))
 
 jidForUi :: Jid -> Text
 jidForUi jid | (l,d,r) <- jidToTexts jid =
@@ -389,17 +400,17 @@ maybeConnect lc cc hc db (Accounts.Account jid pass) Nothing = liftIO $ runEithe
 
 	-- Roster server
 	rosterChan <- liftIO $ atomically newTChan
-	rosterThread <- liftIO $ forkIO (rosterServer rosterChan (items roster))
+	rosterThread <- forkCatch ("rosterServer " ++ T.unpack (show jid')) (rosterServer rosterChan (items roster))
 
 	-- Stanza handling threads
-	imThread <- liftIO $ forkIO (ims lc hc db jid' session)
-	errThread <- liftIO $ forkIO (messageErrors =<< dupSession session)
-	pThread <- liftIO $ forkIO (presenceStream rosterChan lc jid' =<< dupSession session)
+	imThread <- forkCatch ("ims " ++ T.unpack (show jid')) (ims lc hc db jid' session)
+	errThread <- forkCatch ("messageErrors " ++ T.unpack (show jid')) (messageErrors =<< dupSession session)
+	pThread <- forkCatch ("presenceStream " ++ T.unpack (show jid')) (presenceStream rosterChan lc jid' =<< dupSession session)
 
 	disco <- liftIO $ startDisco (getRosterSubbed rosterChan) [Identity (T.pack "client") (T.pack "handheld") (Just $ T.pack APPNAME) Nothing] session
 	case disco of
 		Just disco -> do
-			pingThread <- liftIO $ forkIO (void $ respondToPing (getRosterSubbed rosterChan) disco session)
+			pingThread <- forkCatch ("respondToPing " ++ T.unpack (show jid')) (void $ respondToPing (getRosterSubbed rosterChan) disco session)
 			return $ Connection session jid' (void $ UnexceptionalIO.fromIO $ do -- Ignore exceptions
 					mapM_ killThread [imThread, errThread, pThread, rosterThread, pingThread]
 					stopDisco disco
@@ -466,7 +477,7 @@ connectionManager chan lockingChan hubChan db = void $ runStateT
 		st <- Map.lookup (toBare jid) <$> get
 		case st of
 			Just (CM { cmConnection = (Right (Connection s _ _)), cmClosing = False }) -> do
-				liftIO $ void $ forkIO $ (closeConnection s >> atomically (writeTChan chan $ DoneClosing jid))
+				void $ forkCatch "connectionManager close connection" $ (closeConnection s >> atomically (writeTChan chan $ DoneClosing jid))
 				modify (Map.adjust (\st -> st { cmClosing = True }) jid)
 			_ -> return ()
 	msg ReconnectAll =
@@ -479,7 +490,7 @@ connectionManager chan lockingChan hubChan db = void $ runStateT
 				let Just serverJid = jidFromTexts Nothing (domainpart jid) Nothing in
 				case c of
 					Right (Connection s _ _) | diffUTCTime time lastPing > 30 -> do
-						void $ liftIO $ forkIO $ do
+						void $ forkCatch "connectionManager doing a ping" $ do
 							pingResult <- doPing serverJid s
 							case pingResult of
 								Left  _ -> atomically $ writeTChan chan (Reconnect jid)
@@ -508,13 +519,13 @@ app = do
 		Conversations.createTable db
 
 	lockingChan <- atomically newTChan
-	void $ forkIO (jidLockingServer lockingChan)
+	void $ forkCatch "jidLockingServer" (jidLockingServer lockingChan)
 
 	hubChan <- atomically newTChan
-	void $ forkIO (hubServer hubChan)
+	void $ forkCatch "hubServer" (hubServer hubChan)
 
 	connectionChan <- atomically newTChan
-	void $ forkIO (connectionManager connectionChan lockingChan hubChan db)
-	void $ forkIO (atomically (writeTChan connectionChan MaybePing) >> threadDelay 270000000)
+	void $ forkCatch "connectionManager" (connectionManager connectionChan lockingChan hubChan db)
+	void $ forkCatch "ping timer" (atomically (writeTChan connectionChan MaybePing) >> threadDelay 270000000)
 
 	return (signals lockingChan connectionChan hubChan db)
