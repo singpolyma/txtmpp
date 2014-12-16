@@ -142,7 +142,7 @@ Page {
 				// can use any query that implements the DataQuery interface
 				// SqlDataQuery is the default implementation provided with the library
 				query: SqlDataQuery {
-					source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
+					source: "file://" + app.homePath + "/.config/txtmpp/db.sqlite3"
 					query: "SELECT ROWID AS id, 1 AS revision_id, body, `type`, threadId, strftime('%s', datetime(receivedAt)) AS time, (COALESCE(from_localpart, '') || '@' || from_domainpart || '/' || COALESCE(from_resourcepart, '')) AS `from`, (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) AS otherSide FROM messages WHERE body IS NOT NULL AND (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) = :otherSide ORDER BY receivedAt"
 					countQuery: "SELECT COUNT(*) FROM messages WHERE body IS NOT NULL AND (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) = :otherSide"
 					keyColumn: "id"

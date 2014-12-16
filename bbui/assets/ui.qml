@@ -40,7 +40,7 @@ NavigationPane {
 					cacheSize: 20 // this is the default in-memory capacity
 
 					query: SqlDataQuery {
-						source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
+						source: "file://" + app.homePath + "/.config/txtmpp/db.sqlite3"
 						query: "SELECT id, COALESCE(time, 1) AS revision_id, nickname, lastMessage, time, COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '') AS otherSide, COALESCE(jid_localpart, '') || '@' || jid_domainpart AS jid FROM (SELECT conversations.ROWID as id, conversations.*, body as lastMessage, MAX(CAST(strftime('%s', datetime(receivedAt)) AS INTEGER)) AS time FROM conversations LEFT JOIN (SELECT * FROM messages WHERE body IS NOT NULL) USING (otherSide_localpart, otherSide_domainpart, otherSide_resourcepart) GROUP BY conversations.jid_localpart, conversations.jid_domainpart, conversations.jid_resourcepart, conversations.otherSide_localpart, conversations.otherSide_domainpart, conversations.otherSide_resourcepart ORDER BY CASE WHEN receivedAt IS NULL THEN 1 ELSE 0 END, receivedAt DESC, nickname, jid_localpart)"
 						countQuery: "SELECT COUNT(*) FROM conversations"
 						keyColumn: "id"

@@ -71,7 +71,7 @@ Page {
 				cacheSize: 20 // this is the default in-memory capacity
 
 				query: SqlDataQuery {
-					source: "file:///accounts/1000/appdata/net.singpolyma.txtmpp.testDev_lyma_txtmpp4fc765cb/data/.config/txtmpp/db.sqlite3"
+					source: "file://" + app.homePath + "/.config/txtmpp/db.sqlite3"
 					query: "SELECT ROWID as id, 1 AS revision_id, COALESCE(localpart, '') || '@' || domainpart || '/' || COALESCE(resourcepart, '') AS jid, password FROM accounts ORDER BY localpart, domainpart"
 					countQuery: "SELECT COUNT(*) FROM accounts"
 					keyColumn: "id"
