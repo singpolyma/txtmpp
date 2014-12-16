@@ -5,7 +5,8 @@ SystemPrompt {
 	property variant account
 
 	title: "Join Chatroom"
-	inputField.inputMode: SystemUiInputMode.Email
+	// Email input mode seems right, but makes entering spaces very hard
+	// inputField.inputMode: SystemUiInputMode.Email
 
 	onFinished: {
 		if(result == SystemUiResult.ConfirmButtonSelection) {
