@@ -16,6 +16,7 @@ Page {
 			"otherSide": otherSide
 		};
 		dm.load();
+		app.ChatActive(accountJid, otherSide);
 	}
 
 	function inKindOrDefault(key, def) {
@@ -95,6 +96,18 @@ Page {
 									text: messageListItem.ListItem.view.getNickname(ListItemData.from, ListItemData.otherSide, ListItemData.type)
 								}
 
+
+								Label {
+									horizontalAlignment: HorizontalAlignment.Center
+									verticalAlignment: VerticalAlignment.Fill
+									textStyle {
+										base: SystemDefaults.TextStyles.SmallText
+										color: Color.LightGray
+									}
+
+									text: ListItemData.status
+								}
+
 								Label {
 									horizontalAlignment: HorizontalAlignment.Right
 									verticalAlignment: VerticalAlignment.Fill
@@ -143,7 +156,7 @@ Page {
 				// SqlDataQuery is the default implementation provided with the library
 				query: SqlDataQuery {
 					source: "file://" + app.homePath + "/.config/txtmpp/db.sqlite3"
-					query: "SELECT ROWID AS id, 1 AS revision_id, body, `type`, threadId, strftime('%s', datetime(receivedAt)) AS time, (COALESCE(from_localpart, '') || '@' || from_domainpart || '/' || COALESCE(from_resourcepart, '')) AS `from`, (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) AS otherSide FROM messages WHERE body IS NOT NULL AND (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) = :otherSide ORDER BY receivedAt"
+					query: "SELECT ROWID AS id, 1 AS revision_id, body, `type`, status, threadId, strftime('%s', datetime(receivedAt)) AS time, (COALESCE(from_localpart, '') || '@' || from_domainpart || '/' || COALESCE(from_resourcepart, '')) AS `from`, (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) AS otherSide FROM messages WHERE body IS NOT NULL AND (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) = :otherSide ORDER BY receivedAt"
 					countQuery: "SELECT COUNT(*) FROM messages WHERE body IS NOT NULL AND (COALESCE(otherSide_localpart, '') || '@' || otherSide_domainpart || '/' || COALESCE(otherSide_resourcepart, '')) = :otherSide"
 					keyColumn: "id"
 					revisionColumn: "revision_id"

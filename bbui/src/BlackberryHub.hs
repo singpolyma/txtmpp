@@ -31,7 +31,9 @@ data InboxItem = InboxItem {
 		source  :: Text,
 		title   :: Text,
 		summary :: Text,
-		updated :: UTCTime
+		updated :: UTCTime,
+		unread  :: Int,
+		total   :: Int
 	} deriving (Show, Eq)
 
 newtype AccountID = AccountID CLLong deriving (Show, Eq, Ord)
@@ -195,7 +197,7 @@ hubServer chan = evalContT $ do
 		case accountId of
 			Just id -> void $ lift $ lift $ c_hub_remove_account id -- TODO: Log error?
 			Nothing -> return () -- TODO: Log error?
-	msg (UpdateInboxItem notify (InboxItem account source title summary updated)) = do
+	msg (UpdateInboxItem notify (InboxItem account source title summary updated unread total)) = do
 		accountId <- Map.lookup account <$> get
 		lift $ evalContT $ case accountId of
 			Nothing -> return () -- TODO: Log error?
@@ -214,7 +216,8 @@ hubServer chan = evalContT $ do
 				lift $ c_uds_inbox_item_data_set_description itemP c_summary
 
 				lift $ c_uds_inbox_item_data_set_timestamp itemP $ floor $ 1000 * utcTimeToPOSIXSeconds updated
-				lift $ c_uds_inbox_item_data_set_unread_count itemP $ if notify then 1 else 0
+				lift $ c_uds_inbox_item_data_set_unread_count itemP (fromIntegral unread)
+				lift $ c_uds_inbox_item_data_set_total_count itemP (fromIntegral total)
 				lift $ c_uds_inbox_item_data_set_notification_state itemP $ if notify then 1 else 0
 
 				void $ lift $ c_hub_update_item itemP -- TODO: log error?

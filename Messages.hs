@@ -30,7 +30,7 @@ data Message = Message {
 		receivedAt :: UTCTime
 	} deriving (Show, Eq)
 
-data Status = Received | Sent | Pending deriving (Show, Read, Eq)
+data Status = Received | ReceivedOld | Sent | Pending deriving (Show, Read, Eq)
 
 readFromRow :: (Read a) => RowParser a
 readFromRow = readZ =<< field
@@ -93,6 +93,13 @@ insert conn ignoreExisting = syncIO .
 	orIgnore
 		| ignoreExisting = "OR IGNORE"
 		| otherwise = ""
+
+updateStatus :: (MonadIO m) => Connection -> Jid -> Status -> Status -> m ()
+updateStatus conn otherSide oldStatus newStatus = liftIO $ execute conn
+	(qs$"UPDATE messages SET status=? WHERE status=? AND " ++ otherSideSql)
+	([toField (show newStatus), toField (show oldStatus)] ++ otherSideFields)
+	where
+	(otherSideSql, otherSideFields) = jidQuery True "otherSide" otherSide
 
 toXMPP :: Message -> Pontarius.Message
 toXMPP (Message from to _ threadId stanzaId typ _ subject body _) = withIM

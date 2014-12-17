@@ -4,6 +4,7 @@ import Prelude ()
 import BasicPrelude
 import Control.Error
 
+import Data.Time (UTCTime)
 import qualified Data.Text as T
 
 import Database.SQLite.Simple
@@ -32,12 +33,28 @@ data Conversation = Conversation {
 		nickname  :: Text
 	} deriving (Show, Eq)
 
+data ConversationMeta = ConversationMeta {
+		conversation :: Conversation,
+		lastMessage  :: Text,
+		lastReceived :: UTCTime,
+		unread       :: Int,
+		total        :: Int
+	} deriving (Show, Eq)
+
 instance FromRow Conversation where
 	fromRow = Conversation <$>
 		jidFromRow <*>
 		jidFromRow <*>
 		readFromRow <*>
 		readFromRow <*>
+		field
+
+instance FromRow ConversationMeta where
+	fromRow = ConversationMeta <$>
+		fromRow <*>
+		field <*>
+		field <*>
+		field <*>
 		field
 
 instance ToRow Conversation where
@@ -96,6 +113,14 @@ getConversations conn jid typ = liftIO $ query conn
 getConversation :: (MonadIO m) => Connection -> Bool -> Jid -> Jid -> m (Maybe Conversation)
 getConversation conn bareOtherSide jid otherSide = liftIO $ fmap listToMaybe $ query conn
 	(qs$"SELECT * FROM conversations WHERE " ++ jidSql ++ " AND " ++ otherSideSql)
+	(jidFields ++ otherSideFields)
+	where
+	(jidSql, jidFields) = jidQuery False "jid" jid
+	(otherSideSql, otherSideFields) = jidQuery (not bareOtherSide) "otherSide" otherSide
+
+getConversationMeta :: (MonadIO m) => Connection -> Bool -> Jid -> Jid -> m (Maybe ConversationMeta)
+getConversationMeta conn bareOtherSide jid otherSide = liftIO $ fmap listToMaybe $ query conn
+	(qs$"SELECT conversations.*, body, MAX(receivedAt), SUM(CASE WHEN msgs.status='Received' THEN 1 ELSE 0 END), COUNT(body) FROM conversations LEFT JOIN (SELECT * FROM messages WHERE body IS NOT NULL) msgs USING (otherSide_localpart, otherSide_domainpart, otherSide_resourcepart) WHERE " ++ jidSql ++ " AND " ++ otherSideSql ++ " GROUP BY conversations.jid_localpart, conversations.jid_domainpart, conversations.jid_resourcepart, conversations.otherSide_localpart, conversations.otherSide_domainpart, conversations.otherSide_resourcepart")
 	(jidFields ++ otherSideFields)
 	where
 	(jidSql, jidFields) = jidQuery False "jid" jid

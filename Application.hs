@@ -59,6 +59,20 @@ jidFromUi tjid
 	| T.last tjid == '/' = jidFromUi $ T.init tjid
 	| otherwise = jidFromText tjid
 
+updateHub :: (MonadIO m) => SQLite.Connection -> TChan HubRequest -> Bool -> Jid -> Jid -> m ()
+updateHub db hubChan notify ajid otherSide = liftIO $ do
+		now <- getCurrentTime
+		meta <- Conversations.getConversationMeta db False ajid otherSide
+		let nick = fromMaybe (jidToText otherSide) $ Conversations.nickname . Conversations.conversation <$> meta
+		let message = fromMaybe empty $ Conversations.lastMessage <$> meta
+		let lastRecv = fromMaybe now $ Conversations.lastReceived <$> meta
+		let unread = fromMaybe 0 $ Conversations.unread <$> meta
+		let total = fromMaybe 0 $ Conversations.total <$> meta
+
+		atomically $ writeTChan hubChan $ UpdateInboxItem notify $ InboxItem
+			(jidToText $ toBare ajid) (jidToText otherSide)
+			nick message lastRecv unread total
+
 authSession :: Jid -> Text -> (Session -> XmppFailure -> IO ()) -> [Plugin] -> IO (Either XmppFailure Session)
 authSession jid pass onClosed plugins | isJust user' =
 	session (T.unpack domain) (Just (sasl, resource)) (def {
@@ -146,13 +160,13 @@ ims lockingChan hubChan db jid s = forever $ do
 							Messages.insert db True $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body stamp
 						emit $ ChatMessage (jidToText $ toBare jid) (jidForUi otherJid) thread (jidForUi from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
 
-						atomically $ writeTChan hubChan $ UpdateInboxItem (messageType m /= GroupChat) $ InboxItem (jidToText $ toBare jid) (jidToText otherJid) (fromMaybe (T.pack "no name") $ localpart from) (fromMaybe empty body) stamp
+						updateHub db hubChan (messageType m /= GroupChat) (toBare jid) otherJid
 				_ -> do
 					receivedAt <- getCurrentTime
 					eitherT (emit . Error . T.unpack . show) return $
 						Messages.insert db True $ Messages.Message from jid otherJid thread id (messageType m) Messages.Received (fmap show subject) body receivedAt
 					emit $ ChatMessage (jidToText $ toBare jid) (jidForUi otherJid) thread (jidForUi from) id (fromMaybe T.empty subject) (fromMaybe T.empty body)
-					atomically $ writeTChan hubChan $ UpdateInboxItem (messageType m /= GroupChat) $ InboxItem (jidToText $ toBare jid) (jidToText otherJid) (fromMaybe (T.pack "no name") $ localpart from) (fromMaybe empty body) receivedAt
+					updateHub db hubChan (messageType m /= GroupChat) (toBare jid) otherJid
 
 mapInboundConversation :: SQLite.Connection -> Jid -> Message -> IO (Maybe Conversations.Conversation)
 mapInboundConversation db ajid m@(Message {messageFrom = Just from, messageType = GroupChat}) = do
@@ -251,7 +265,14 @@ signals lockingChan connectionChan hubChan db (SendChat taccountJid totherSide t
 			Messages.send db s $ Messages.Message jid to otherSide thread' mid typ' Messages.Pending Nothing (Just body) receivedAt
 
 		liftIO $ emit $ ChatMessage (jidToText $ toBare ajid) (jidForUi $ toBare to) thread (jidForUi jid) (show mid) T.empty body
-		liftIO $ atomically $ writeTChan hubChan $ UpdateInboxItem False $ InboxItem (jidToText $ toBare ajid) (jidToText otherSide) (fromMaybe (T.pack "no name") $ localpart to) body receivedAt
+		updateHub db hubChan False (toBare ajid) otherSide
+signals _ _ hubChan db (ChatActive taccountJid totherSide) =
+	eitherT (emit . Error) return $ do
+		ajid <- hoistEither (jidParse taccountJid)
+		otherSide <- hoistEither (jidParse totherSide)
+		Messages.updateStatus db otherSide Messages.Received Messages.ReceivedOld
+
+		updateHub db hubChan False (toBare ajid) otherSide
 signals _ connectionChan _ _ (AcceptSubscription taccountJid jidt) =
 	eitherT (emit . Error) return $ do
 		ajid <- hoistEither (jidParse taccountJid)
